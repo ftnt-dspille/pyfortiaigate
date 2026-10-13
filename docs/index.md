@@ -23,36 +23,28 @@ Python 3.10+.
 ## Quick start
 
 ```python
-from pyfortiaigate import (
-    FortiAIGate,
-    approve_new,
-    blocked,
-    regex_detector_body,
-    secret_from_response,
-)
+from pyfortiaigate import FortiAIGate, blocked, regex_detector_body
 
 with FortiAIGate("https://faig.example.com", "admin", "<password>") as faig:
-    # A detector, then a guardrail and policy that use it
-    det = faig.create_detector(
+    # A detector, a guardrail and a policy that use it. ensure_* creates what
+    # is missing, updates what differs and approves it; safe to re-run.
+    faig.ensure_detector(
         "team-a", regex_detector_body("no-ssn", [("ssn", r"\d{3}-\d{2}-\d{4}", "block")])
     )
-    approve_new(faig, "team-a", "detectors", det)
-    g = faig.create_guardrail("team-a", "pii", [det["uuid"]])
-    approve_new(faig, "team-a", "guardrails", g)
-    p = faig.create_policy("team-a", "pii-policy", [g["id"]], [g["id"]])
-    approve_new(faig, "team-a", "policies", p)
+    faig.ensure_guardrail("team-a", "pii", ["no-ssn"])
+    faig.ensure_policy("team-a", "pii-policy", ["pii"], ["pii"], provider_ids=["openai"])
 
     # A virtual key bound to the policy, used on the gateway
-    key = faig.create_virtual_key("team-a", "app", policy_ids=[p["id"]], provider_ids=["openai"])
-    secret = secret_from_response(key)
+    key = faig.ensure_virtual_key("team-a", "app", policy_ids=["pii-policy"])
     reply = faig.chat_completion(
-        secret, "gpt-4o-mini", [{"role": "user", "content": "My SSN is 123-45-6789"}]
+        key.secret, "gpt-4o-mini", [{"role": "user", "content": "My SSN is 123-45-6789"}]
     )
     print("blocked" if blocked(reply) else reply["choices"][0]["message"]["content"])
 ```
 
-Workspaces can be named directly: every `ws_id` argument takes a workspace's
-name, id or record. Every method and the call it makes: [Actions](actions.md).
+Workspaces, detectors, guardrails, policies and keys can be named directly:
+see [Names & re-runnable setup](guide/setup.md). For quick looks from the shell
+there is a [command line](guide/cli.md). Every method and the call it makes: [Actions](actions.md).
 
 ## Configuration from the environment
 

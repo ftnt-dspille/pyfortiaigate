@@ -256,13 +256,13 @@ WRITES: list[tuple[Callable[[FortiAIGate], Any], str, str, Any]] = [
         None,
     ),
     (
-        lambda c: c.update_policy("w1", "p1", "p", ["g"], [], provider_ids=["openai"]),
+        lambda c: c.update_policy("w1", "p1", "p", ["g1"], [], provider_ids=["openai"]),
         "PUT",
         "/api/v1/workspaces/w1/policies/p1",
         {
             "name": "p",
             "description": "p",
-            "inputGuardrailIds": ["g"],
+            "inputGuardrailIds": ["g1"],
             "outputGuardrailIds": [],
             "responseScanMode": "post_stream",
             "providerAccess": [{"providerId": "openai", "allModels": True}],

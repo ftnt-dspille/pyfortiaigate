@@ -28,15 +28,46 @@ All notable changes to this project are documented here. The format follows
 - What a key can call: `available_models()`, `can_use_model()`, plus `models()`,
   `workspace_models()`, `grantable_providers()`, `attachable_policies()` and
   workspace `model_groups()`.
-
 - Workspaces by name: every `ws_id` argument accepts a workspace's id, its
   unique name, or its record; `resolve_workspace()` does the lookup (cached,
   refreshed on a miss; org admins and members alike). An unknown name raises
   `LookupError`.
+- Detectors, guardrails, policies and virtual keys by name too, everywhere one
+  is taken (including the detector list of a guardrail, a policy's guardrails
+  and a key's policies). A detector name may be a built-in's name or slug; a
+  key may also be given by its `faig_...` secret. `approve`/`reject` find a
+  name in the review queue. `resolve_detector/guardrail/policy/virtual_key()`.
+- Re-runnable setup: `ensure_detector`, `ensure_guardrail`, `ensure_policy` and
+  `ensure_virtual_key` create what is missing, update what differs, approve it,
+  and leave a match alone; they return `Ensured(record, action, secret)`.
+- Typed errors, all subclasses of `FaigError`: `AuthError`, `NotFound`,
+  `ModelNotAvailable`, `Conflict`, `ValidationError`, `RateLimited`,
+  `ServerError`; each carries the decoded `data`, the gateway's `code` and the
+  `field` a 409/422 names. `error_for()` picks the class.
+- `rate_limit_wait=`: wait out HTTP 429s for up to that many seconds
+  (honouring `Retry-After` when sent) instead of raising.
+- Streaming: `chat_completion_stream()` yields chunks, including a block's
+  `content_filter` chunk; `collect_stream()` joins them.
+- `wait_for_traffic()`: poll until a request's traffic log rows have landed.
+- Audit log: `iter_audit_logs()` and `audit_logs_page()` with time windows and
+  user/role/action/message/workspace filters; `licenses()`.
+- `TypedDict` record types (`Workspace`, `Detector`, `Guardrail`, `Policy`,
+  `VirtualKey`, `TrafficLogRow`, `TrafficLog`, `AuditLogRow`) on the methods
+  that return them, for editor completion. Records are still plain dicts.
+- A `pyfortiaigate` command (`python -m pyfortiaigate`): workspaces, objects,
+  keys, models, usage and cost, traffic and audit logs, guardrail scans and a
+  test chat, as tables or `--json`. Reads `FAIG_*` and a local `.env`.
+- `pyfortiaigate.__version__`.
+- `create_guardrail`/`update_guardrail` take `deny_suspicious_characters`;
+  `update_virtual_key` takes `provider_ids`.
 
 ### Changed
 
 - `workspace_analytics()` takes an optional date window.
+- `approve_new()` also approves an active object's pending change.
+- List and record methods are annotated with the record types above instead of
+  `dict[str, Any]`; strict type checkers may need a `dict(...)` where a plain
+  dict is expected.
 
 ## [0.1.0] - 2026-10-12
 

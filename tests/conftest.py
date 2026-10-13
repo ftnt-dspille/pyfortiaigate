@@ -5,6 +5,7 @@ mocks. Routes not scripted by a test answer 200 ``{}``."""
 from __future__ import annotations
 
 import json
+import re
 import threading
 from collections import defaultdict, deque
 from collections.abc import Callable, Iterator
@@ -112,7 +113,8 @@ def _handler(fake: FakeFaig) -> type[BaseHTTPRequestHandler]:
             self.send_response(status)
             for k, v in headers.items():
                 self.send_header(k, v)
-            self.send_header("Content-Type", "application/json")
+            if not any(k.lower() == "content-type" for k in headers):
+                self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
@@ -143,6 +145,19 @@ def faig(fake: FakeFaig) -> Iterator[FortiAIGate]:
     c._ws_ids.update({f"w{i}": f"w{i}" for i in range(10)})
     yield c
     c._opener.close()
+
+
+# Short test ids ("d1", "k2") stand in for UUIDs: they pass through as ids
+# without a name lookup. Names in tests contain a dash or letters after digits.
+TEST_ID = re.compile(
+    r"^(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[a-z]\d+)$"
+)
+
+
+@pytest.fixture(autouse=True)
+def _short_ids(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest) -> None:
+    if "live" not in request.keywords:
+        monkeypatch.setattr("pyfortiaigate.client._UUID", TEST_ID)
 
 
 @pytest.fixture(autouse=True)

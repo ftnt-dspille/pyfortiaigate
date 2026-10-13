@@ -71,11 +71,15 @@ nav:
   - Actions: actions.md
   - Guide:
       - Authentication & TLS: guide/auth.md
+      - Names & re-runnable setup: guide/setup.md
       - Reliability: guide/reliability.md
       - Approval workflow: guide/approval.md
       - Virtual keys & the gateway: guide/gateway.md
       - Usage, cost & logs: guide/reporting.md
+      - Errors & rate limits: guide/errors.md
+      - Command line: guide/cli.md
   - Reference:
       - FortiAIGate client: reference/client.md
       - Helpers & body builders: reference/helpers.md
+      - Record types: reference/types.md
   - Changelog: changelog.md

@@ -10,13 +10,22 @@ pip install pyfortiaigate
 ```
 
 ```python
-from pyfortiaigate import FortiAIGate, approve_new, regex_detector_body
+from pyfortiaigate import FortiAIGate, regex_detector_body
 
 with FortiAIGate("https://faig.example.com", "admin", "<password>") as faig:
-    det = faig.create_detector(  # a workspace by name, id or record
+    # Everything by name; ensure_* creates, updates or leaves alone, and approves.
+    faig.ensure_detector(
         "team-a", regex_detector_body("no-ssn", [("ssn", r"\d{3}-\d{2}-\d{4}", "block")])
     )
-    approve_new(faig, "team-a", "detectors", det)  # draft -> pending -> active
+    faig.ensure_guardrail("team-a", "pii", ["no-ssn"])
+    faig.ensure_policy("team-a", "pii-policy", ["pii"], ["pii"], provider_ids=["openai"])
+```
+
+From the shell:
+
+```bash
+pyfortiaigate cost --days 1 --by key
+pyfortiaigate logs --key student04 --verdict Block
 ```
 
 ## What it handles for you
@@ -29,6 +38,10 @@ with FortiAIGate("https://faig.example.com", "admin", "<password>") as faig:
   sent twice.
 - **One connection:** requests reuse a keep-alive HTTPS connection, which
   matters through tunnels where every new connect costs seconds.
+- **Names, not ids:** workspaces, detectors, guardrails, policies and keys can
+  be given by name anywhere, and `ensure_*` makes setup scripts safe to re-run.
+- **Typed errors:** `NotFound`, `ModelNotAvailable`, `Conflict`,
+  `RateLimited`, ... all subclasses of `FaigError`; optional waiting on 429s.
 - **Undocumented behaviour:** body builders encode what the API silently
   requires (a regex detector's flat `rules` list, DLP `disposition`, at least
   one detector per guardrail).
@@ -40,7 +53,8 @@ Users and invitations, workspaces, detectors (custom and built-in), guardrails
 update, rotate, revoke), usage and cost reports, guardrail analytics, traffic and
 ICAP logs, the detector Playground, Natural Language detectors, AI providers,
 models and what a key may call, DLP labels, audit logs, and the gateway
-(`check_key`, `available_models`, `chat_completion`).
+(`check_key`, `available_models`, `chat_completion`, streaming), plus a
+`pyfortiaigate` command line.
 
 Full reference: **https://ftnt-dspille.github.io/pyfortiaigate/**
 

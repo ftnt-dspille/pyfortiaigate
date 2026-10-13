@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import contextlib
 import datetime as dt
+import email.utils
 import http.client
 import http.cookiejar
 import io
@@ -58,8 +59,8 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Iterable, Iterator, Mapping
-from typing import Any
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from typing import Any, NamedTuple, TypedDict, cast
 
 log = logging.getLogger("pyfortiaigate")
 
@@ -114,9 +115,218 @@ LOG_PAGE = 50  # the console's page size
 WsRef = str | Mapping[str, Any]
 _UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
+# A detector, guardrail, policy or virtual key argument: its id, its name, or
+# its record. A key may also be given by its ``faig_...`` secret.
+Ref = str | Mapping[str, Any]
+
+AUDIT_FILTERS = {
+    "user": "userFilters",
+    "role": "roleFilters",
+    "action": "actionFilters",
+    "message": "messageFilters",
+    "workspace": "workspaceFilters",
+}
+
+
+# -- record types ------------------------------------------------------------------
+# The fields 8.0.2 returns, for editor completion and type checking. They are
+# ``total=False``: a field the appliance leaves out is simply absent. Records
+# are plain dicts at runtime.
+class Workspace(TypedDict, total=False):
+    id: str
+    workspaceName: str
+    organizationId: str
+    organization: str
+    spend: float
+    budget: float | None
+    budgetCycle: str
+    tpm: int | None
+    rpm: int | None
+    memberCount: int
+    admins: list[dict[str, Any]]
+    providerAccess: list[dict[str, Any]]
+    modelGroups: list[dict[str, Any]]
+    createdAt: str
+    createdBy: str
+    grantedModelCount: int
+    credentialGaps: list[Any]
+
+
+class _Reviewed(TypedDict, total=False):
+    """Fields shared by objects that go through approval."""
+
+    name: str
+    description: str
+    ownerWorkspaceId: str | None
+    scope: str
+    submittedBy: Any
+    submittedAt: str | None
+    rejectionReason: str | None
+    createdAt: str
+    updatedAt: str
+    activatedAt: str | None
+    contentUpdatedAt: str | None
+    hasPendingChange: bool
+    pendingDeletion: bool
+    pendingChangeKind: str | None
+
+
+class Detector(_Reviewed, total=False):
+    uuid: str
+    inputGuards: list[str]
+    outputGuards: list[str]
+    ruleCount: int
+    sensitivity: Any
+    engine: str
+    detectorType: str
+    managedEngine: str | None
+    action: str | None
+    rules: list[dict[str, Any]]
+    regexRules: list[dict[str, Any]] | None
+    aiRules: list[dict[str, Any]] | None
+    approvalStatus: str
+
+
+class Guardrail(_Reviewed, total=False):
+    id: str
+    detectorIds: list[str]
+    status: str
+    usedByPolicyCount: int
+    denySuspiciousCharacters: bool
+
+
+class Policy(_Reviewed, total=False):
+    id: str
+    inputGuardrailIds: list[str]
+    outputGuardrailIds: list[str]
+    responseScanMode: str
+    providerAccess: list[dict[str, Any]]
+    status: str
+    assignedWorkspaceIds: list[str]
+    applyToOrganization: bool
+
+
+class VirtualKey(TypedDict, total=False):
+    id: str
+    keyName: str
+    keyType: str
+    scope: str
+    keyPreview: str
+    status: str
+    createdBy: dict[str, Any]
+    owner: dict[str, Any]
+    workspace: dict[str, Any]
+    project: Any
+    policyIds: list[dict[str, Any]]
+    providerAccess: list[dict[str, Any]]
+    modelGroups: list[Any]
+    budgetWindows: dict[str, Any]
+    windowSpend: dict[str, Any]
+    workspaceSpend: float
+    suspension: Any
+    spend: float
+    tpm: int | None
+    rpm: int | None
+    expiresAt: str | None
+    lastUsedAt: str | None
+    revokedAt: str | None
+    revokeReason: str | None
+    createdAt: str
+    updatedAt: str
+    updatedBy: dict[str, Any]
+
+
+class TrafficLogRow(TypedDict, total=False):
+    """A row of ``traffic_logs``; ``timeStamp`` is epoch milliseconds."""
+
+    uuid: str
+    timeStamp: int
+    verdict: bool
+    action: str
+    verdictLabel: str
+    status: str
+    user: str
+    workspace: str
+    isGlobalKey: bool
+    keyAlias: str
+    keyPrefix: str
+    keyType: str
+    model: str | None
+    modelGroup: str | None
+    requestPath: str
+    trafficType: str
+
+
+class TrafficLog(TrafficLogRow, total=False):
+    """The full record from ``traffic_log(uuid)``."""
+
+    costBasis: str
+    httpStatus: int
+    errorCode: str | None
+    upstreamMessage: str | None
+    outcome: str | None
+    aiFlow: Any
+    guardName: str | None
+    guardType: str
+    detector: str | None
+    guardrail: str | None
+    policy: str | None
+    cost: str
+    duration: str
+    latency: Any
+    ipaddress: list[str]
+    prompt: dict[str, Any]
+    response: dict[str, Any]
+    systemPrompt: str
+    tokens: dict[str, Any]
+    toolCalls: list[Any]
+    toolDefinitions: list[Any]
+    toolResponses: list[Any]
+    violation: dict[str, Any]
+    userAgent: str | None
+    requestId: str
+    sessionId: str | None
+    org: Any
+
+
+class AuditLogRow(TypedDict, total=False):
+    uuid: str
+    timeStamp: int
+    username: str
+    sourceIp: str
+    type: str
+    action: str
+    actionLabel: str
+    message: str
+    role: str
+    workspace: str | None
+
+
+class Ensured(NamedTuple):
+    """What an ``ensure_*`` call did. ``action`` is ``created``, ``updated`` or
+    ``unchanged``; ``record`` is the object as it now stands; ``secret`` is a
+    new virtual key's one-time secret (None otherwise)."""
+
+    record: dict[str, Any]
+    action: str
+    secret: str | None = None
+
+    @property
+    def id(self) -> str:
+        return str(self.record.get("uuid") or self.record.get("id"))
+
+    @property
+    def changed(self) -> bool:
+        return self.action != "unchanged"
+
 
 class FaigError(RuntimeError):
-    """An HTTP status >= 400 from FortiAIGate. ``body`` is the raw response text."""
+    """An HTTP status >= 400 from FortiAIGate. ``body`` is the raw response text,
+    ``data`` its decoded JSON (None if it is not JSON), ``code`` the gateway's
+    OpenAI-style ``error.code`` and ``field`` the field a 409/422 names.
+
+    Raised as the subclass for its status (``NotFound``, ``Conflict``, ...), so
+    ``except FaigError`` still catches every one."""
 
     def __init__(self, method: str, path: str, status: int, body: str):
         super().__init__(f"{method} {path} -> HTTP {status}: {_message(body)}")
@@ -124,17 +334,85 @@ class FaigError(RuntimeError):
         self.path = path
         self.status = status
         self.body = body
+        self.data: Any = _json_or_none(body)
+        err = self.data.get("error") if isinstance(self.data, dict) else None
+        self.code: str | None = (
+            str(err["code"]) if isinstance(err, dict) and err.get("code") else None
+        )
+        field = self.data.get("field") if isinstance(self.data, dict) else None
+        self.field: str | None = str(field) if field else None
+
+
+class AuthError(FaigError):
+    """401 or 403: bad credentials, an expired session that would not renew, a
+    rejected virtual key, or a call the account's role may not make."""
+
+
+class NotFound(FaigError):
+    """404: no such object (or path)."""
+
+
+class ModelNotAvailable(NotFound):
+    """The gateway's 404 for a model the virtual key is not granted
+    (``code: model_not_found``). ``available_models(key)`` lists what it may call."""
+
+
+class Conflict(FaigError):
+    """409: a name already used in the workspace (``field`` names it), or an
+    approval that lost a race."""
+
+
+class ValidationError(FaigError):
+    """400 or 422: the body was refused; the message usually lists what is allowed."""
+
+
+class RateLimited(FaigError):
+    """429: a key's rpm/tpm limit. 8.0.2 sends no ``Retry-After``; set
+    ``rate_limit_wait`` on the client to wait and retry instead of raising."""
+
+
+class ServerError(FaigError):
+    """5xx from the appliance or an upstream provider."""
+
+
+def error_for(method: str, path: str, status: int, body: str) -> FaigError:
+    """The ``FaigError`` subclass for an HTTP status (and gateway error code)."""
+    cls: type[FaigError] = FaigError
+    if status in (401, 403):
+        cls = AuthError
+    elif status == 404:
+        cls = NotFound
+        data = _json_or_none(body)
+        err = data.get("error") if isinstance(data, dict) else None
+        if isinstance(err, dict) and err.get("code") == "model_not_found":
+            cls = ModelNotAvailable
+    elif status == 409:
+        cls = Conflict
+    elif status in (400, 422):
+        cls = ValidationError
+    elif status == 429:
+        cls = RateLimited
+    elif status >= 500:
+        cls = ServerError
+    return cls(method, path, status, body)
+
+
+def _json_or_none(body: str) -> Any:
+    try:
+        return json.loads(body)
+    except ValueError:
+        return None
 
 
 def _message(body: str) -> str:
-    try:
-        data = json.loads(body)
-    except ValueError:
-        return body[:400]
+    data = _json_or_none(body)
     if isinstance(data, dict):
         for key in ("error", "message", "detail"):
-            if data.get(key):
-                return str(data[key])[:400]
+            value = data.get(key)
+            if isinstance(value, dict) and value.get("message"):
+                value = value["message"]
+            if value:
+                return str(value)[:400]
     return body[:400]
 
 
@@ -290,6 +568,8 @@ class FortiAIGate:
     True (system trust store), a CA bundle path (trust a self-signed appliance
     certificate), or False (no verification; lab use only). ``gateway_url`` is
     the data plane's base when it differs from the management URL.
+    ``rate_limit_wait`` is how many seconds in total to spend waiting out HTTP
+    429s before raising ``RateLimited`` (0, the default, raises at once).
 
     Transport failures are retried with backoff (1, 2, 4, ... s): a request that
     was never answered is retried for every method; a connection dropped AFTER
@@ -308,11 +588,13 @@ class FortiAIGate:
         timeout: float = 60,
         retries: int = 5,
         gateway_url: str | None = None,
+        rate_limit_wait: float = 0,
     ):
         self.url = origin(url)
         self.gateway_url = origin(gateway_url) if gateway_url else self.url
         self.timeout = timeout
         self.retries = retries
+        self.rate_limit_wait = rate_limit_wait
         self._token = token
         self._creds = (username, password or "") if username else None
         self._logged_in = False
@@ -320,6 +602,7 @@ class FortiAIGate:
         self._jar = http.cookiejar.CookieJar()
         self._opener = _KeepAliveOpener(self._ctx, self._jar)
         self._ws_ids: dict[str, str] = {}  # workspace name -> id
+        self._builtin_cache: list[dict[str, Any]] | None = None
 
     @classmethod
     def from_env(cls, **kw: Any) -> FortiAIGate:
@@ -366,13 +649,24 @@ class FortiAIGate:
         data = None if body is None else json.dumps(body).encode()
         hdrs = {"Content-Type": "application/json", "Accept": "application/json"}
         hdrs.update(headers or {})
-        for attempt in range(self.retries + 1):
+        attempt = limited = 0
+        waited = 0.0
+        while True:
             req = urllib.request.Request(url, data=data, headers=hdrs, method=method)
             try:
                 with self._opener.open(req, timeout=timeout or self.timeout) as resp:
                     return resp.status, resp.read().decode(errors="replace")
             except urllib.error.HTTPError as e:
-                return e.code, e.read().decode(errors="replace")
+                text = e.read().decode(errors="replace")
+                if e.code != 429 or waited >= self.rate_limit_wait:
+                    return e.code, text
+                # Rate limited: nothing was processed, so any method may resend.
+                wait = min(_retry_after(e.headers) or 2.0**limited, self.rate_limit_wait - waited)
+                limited += 1
+                waited += wait
+                log.warning("%s %s: HTTP 429; waiting %.1fs", method, url, wait)
+                time.sleep(wait)
+                continue
             except urllib.error.URLError as e:
                 err: Exception = e
             except (http.client.RemoteDisconnected, ConnectionResetError, TimeoutError) as e:
@@ -382,11 +676,11 @@ class FortiAIGate:
             if attempt == self.retries:
                 raise err
             wait = 2**attempt
+            attempt += 1
             log.warning(
-                "%s %s: %s; retry %d/%d in %ds", method, url, err, attempt + 1, self.retries, wait
+                "%s %s: %s; retry %d/%d in %ds", method, url, err, attempt, self.retries, wait
             )
             time.sleep(wait)
-        raise AssertionError("unreachable")
 
     def _path(self, path: str, params: Mapping[str, Any] | None = None) -> str:
         if not path.startswith("/"):
@@ -413,7 +707,7 @@ class FortiAIGate:
             # The legacy /api/login takes only the built-in admin by its bare name.
             st2, _ = self._raw("POST", self.url + "/api/login", body)
             if st2 != 200:
-                raise FaigError("POST", "/api/v1/login", st, txt)
+                raise error_for("POST", "/api/v1/login", st, txt)
         self._logged_in = True
 
     def _auth_headers(self, method: str) -> tuple[int, str, dict[str, str]]:
@@ -458,7 +752,7 @@ class FortiAIGate:
         elif st == 403 and method != "GET" and "csrf" in txt.lower():
             st, txt = self._send(method, path, body)  # a token that went stale in flight
         if st >= 400:
-            raise FaigError(method, path, st, txt)
+            raise error_for(method, path, st, txt)
         return json.loads(txt) if txt.strip() else None
 
     def get(self, path: str, params: Mapping[str, Any] | None = None) -> JSON:
@@ -513,7 +807,7 @@ class FortiAIGate:
         finally:
             anon._opener.close()
         if st >= 400:
-            raise FaigError("POST", path, st, txt)
+            raise error_for("POST", path, st, txt)
         return json.loads(txt) if txt.strip() else None
 
     def delete_user(self, user_id: str) -> JSON:
@@ -578,15 +872,15 @@ class FortiAIGate:
         """The URL segment for a workspace argument."""
         return _q(self.resolve_workspace(ws))
 
-    def workspaces(self) -> list[dict[str, Any]]:
+    def workspaces(self) -> list[Workspace]:
         """Every workspace (org admin)."""
-        return self._list("/api/v1/admin/workspaces")
+        return cast("list[Workspace]", self._list("/api/v1/admin/workspaces"))
 
-    def my_workspaces(self) -> list[dict[str, Any]]:
+    def my_workspaces(self) -> list[Workspace]:
         """The workspaces the logged-in user is a member of."""
-        return self._list("/api/v1/me/workspaces")
+        return cast("list[Workspace]", self._list("/api/v1/me/workspaces"))
 
-    def workspace_by_name(self, name: str) -> dict[str, Any] | None:
+    def workspace_by_name(self, name: str) -> Workspace | None:
         return next((w for w in self.workspaces() if w.get("workspaceName") == name), None)
 
     def create_workspace(
@@ -632,32 +926,97 @@ class FortiAIGate:
         """Guardrail analytics for a workspace; see ``analytics``."""
         return self.analytics(frm, to, limit=limit, ws_id=ws_id)
 
+    # -- names -> ids -------------------------------------------------------------------
+    def _resolve(self, kind: str, ref: Ref, ws_id: WsRef | None) -> str:
+        """The id of a detector/guardrail/policy/key from its id, name or record.
+        Names are unique per workspace for detectors, guardrails and policies
+        (a duplicate create is a 409); key names are not, so two keys with one
+        name are refused as ambiguous."""
+        if isinstance(ref, Mapping):
+            return str(ref.get("uuid") or ref["id"])
+        if _UUID.match(ref):
+            return ref
+        if kind == "virtual-keys" and ref.startswith("faig_"):
+            return key_id_from_secret(ref)
+        records: list[Any]
+        if kind == "detectors":
+            records = self.detectors(ws_id)
+        elif kind == "guardrails":
+            records = self.guardrails(ws_id)
+        elif kind == "policies":
+            records = self.policies(ws_id)
+        else:
+            records = self.virtual_keys(ws_id)
+        field = "keyName" if kind == "virtual-keys" else "name"
+        found = {str(r.get("uuid") or r.get("id")) for r in records if r.get(field) == ref}
+        if not found and kind == "detectors":
+            # A built-in detector's id is a slug ("prompt-injection"), not a UUID.
+            found = {str(b["id"]) for b in self._builtins() if ref in (b.get("id"), b.get("name"))}
+        where = "this account" if ws_id is None else f"workspace {ws_id!r}"
+        if not found:
+            raise LookupError(f"no {_SINGULAR[kind]} named {ref!r} in {where}")
+        if len(found) > 1:
+            raise ValueError(
+                f"{len(found)} {kind.replace('-', ' ')} are named {ref!r}; pass the id"
+            )
+        return found.pop()
+
+    def _builtins(self) -> list[dict[str, Any]]:
+        if self._builtin_cache is None:
+            self._builtin_cache = self.builtin_detectors()
+        return self._builtin_cache
+
+    def resolve_detector(self, ref: Ref, ws_id: WsRef | None = None) -> str:
+        """A detector's uuid from its uuid, name (custom or built-in) or record.
+        Every method that takes a detector accepts all three."""
+        return self._resolve("detectors", ref, ws_id)
+
+    def resolve_guardrail(self, ref: Ref, ws_id: WsRef | None = None) -> str:
+        """A guardrail's id from its id, name or record."""
+        return self._resolve("guardrails", ref, ws_id)
+
+    def resolve_policy(self, ref: Ref, ws_id: WsRef | None = None) -> str:
+        """A policy's id from its id, name or record."""
+        return self._resolve("policies", ref, ws_id)
+
+    def resolve_virtual_key(self, ref: Ref, ws_id: WsRef | None = None) -> str:
+        """A virtual key's id from its id, name, record or ``faig_...`` secret."""
+        return self._resolve("virtual-keys", ref, ws_id)
+
+    def _ids(self, kind: str, refs: Iterable[Ref], ws_id: WsRef | None) -> list[str]:
+        return [self._resolve(kind, r, ws_id) for r in refs]
+
     # -- detectors -----------------------------------------------------------------
-    def detectors(self, ws_id: WsRef | None = None) -> list[dict[str, Any]]:
+    def detectors(self, ws_id: WsRef | None = None) -> list[Detector]:
         """Custom detectors in a workspace, or (no ``ws_id``) every custom detector."""
         if ws_id:
-            return self._list(f"/api/v1/workspaces/{self._ws(ws_id)}/detectors")
-        return self._list("/api/v1/admin/detectors")
+            return cast(
+                "list[Detector]", self._list(f"/api/v1/workspaces/{self._ws(ws_id)}/detectors")
+            )
+        return cast("list[Detector]", self._list("/api/v1/admin/detectors"))
 
     def builtin_detectors(self) -> list[dict[str, Any]]:
         """Built-in detectors, identified by a slug id; a guardrail can use either kind."""
         return self._list("/api/v1/admin/built-in-detectors")
 
-    def detector_by_name(self, ws_id: WsRef, name: str) -> dict[str, Any] | None:
+    def detector_by_name(self, ws_id: WsRef, name: str) -> Detector | None:
         return next((d for d in self.detectors(ws_id) if d.get("name") == name), None)
 
     def create_detector(self, ws_id: WsRef, body: Mapping[str, Any]) -> JSON:
-        """See ``regex_detector_body`` and ``dlp_detector_body``."""
+        """See ``regex_detector_body``, ``dlp_detector_body`` and ``ai_detector_body``.
+        A name already used in the workspace is a ``Conflict``."""
         return self.post(f"/api/v1/workspaces/{self._ws(ws_id)}/detectors", dict(body))
 
-    def update_detector(self, ws_id: WsRef, uuid: str, body: Mapping[str, Any]) -> JSON:
-        return self.put(f"/api/v1/workspaces/{self._ws(ws_id)}/detectors/{_q(uuid)}", dict(body))
+    def update_detector(self, ws_id: WsRef, uuid: Ref, body: Mapping[str, Any]) -> JSON:
+        did = _q(self.resolve_detector(uuid, ws_id))
+        return self.put(f"/api/v1/workspaces/{self._ws(ws_id)}/detectors/{did}", dict(body))
 
-    def delete_detector(self, uuid: str, ws_id: WsRef | None = None) -> JSON:
+    def delete_detector(self, uuid: Ref, ws_id: WsRef | None = None) -> JSON:
         """Delete a workspace detector (``ws_id``) or, as org admin, any detector."""
+        did = _q(self.resolve_detector(uuid, ws_id))
         if ws_id:
-            return self.delete(f"/api/v1/workspaces/{self._ws(ws_id)}/detectors/{_q(uuid)}")
-        return self.delete(f"/api/v1/admin/detectors/{_q(uuid)}")
+            return self.delete(f"/api/v1/workspaces/{self._ws(ws_id)}/detectors/{did}")
+        return self.delete(f"/api/v1/admin/detectors/{did}")
 
     def playground(self, text: str, body: Mapping[str, Any], ws_id: WsRef | None = None) -> JSON:
         """Scan ``text`` with a detector BODY that need not be saved (the
@@ -669,59 +1028,112 @@ class FortiAIGate:
             return self.post(f"/api/v1/workspaces/{self._ws(ws_id)}/detectors/test", payload)
         return self.post("/api/v1/admin/detectors/test", payload)
 
-    def test_detector(self, ws_id: WsRef, uuid: str, text: str) -> JSON:
+    def test_detector(self, ws_id: WsRef, uuid: Ref, text: str) -> JSON:
         """Scan text with a SAVED detector: ``matched``, ``finalDisposition``,
         ``score``, ``spans``. For an unsaved body use ``playground``."""
+        did = _q(self.resolve_detector(uuid, ws_id))
         return self.post(
-            f"/api/v1/workspaces/{self._ws(ws_id)}/detectors/{_q(uuid)}/test", {"input": text}
+            f"/api/v1/workspaces/{self._ws(ws_id)}/detectors/{did}/test", {"input": text}
         )
 
+    def ensure_detector(
+        self, ws_id: WsRef, body: Mapping[str, Any], *, approve: bool = True
+    ) -> Ensured:
+        """Make the workspace's detector named ``body["name"]`` match ``body``:
+        create it if missing, update it if any field in ``body`` differs, leave
+        it alone otherwise. ``approve`` (org admin) walks a new or still-draft
+        detector to ``active``. Safe to re-run."""
+        ws = self.resolve_workspace(ws_id)
+        name = str(body["name"])
+        current = self.detector_by_name(ws, name)
+        if current is None:
+            created = self.create_detector(ws, body)
+            action = "created"
+            current = cast(Detector, created)
+        elif _differs(body, current):
+            self.update_detector(ws, current["uuid"], body)
+            action = "updated"
+        else:
+            action = "unchanged"
+        if approve:
+            approve_new(self, ws, "detectors", self.detector_by_name(ws, name) or current)
+        return Ensured(dict(self.detector_by_name(ws, name) or current), action)
+
     # -- guardrails ----------------------------------------------------------------
-    def guardrails(self, ws_id: WsRef | None = None) -> list[dict[str, Any]]:
+    def guardrails(self, ws_id: WsRef | None = None) -> list[Guardrail]:
         """A workspace's guardrails, or (no ``ws_id``) the org's."""
         if ws_id:
-            return self._list(f"/api/v1/workspaces/{self._ws(ws_id)}/guardrails")
-        return self._list("/api/v1/admin/guardrails")
+            return cast(
+                "list[Guardrail]", self._list(f"/api/v1/workspaces/{self._ws(ws_id)}/guardrails")
+            )
+        return cast("list[Guardrail]", self._list("/api/v1/admin/guardrails"))
 
-    def guardrail(self, gid: str, ws_id: WsRef | None = None) -> dict[str, Any]:
+    def guardrail(self, gid: Ref, ws_id: WsRef | None = None) -> Guardrail:
         """One guardrail, by the workspace path (``ws_id``) or the org-admin path."""
+        g = _q(self.resolve_guardrail(gid, ws_id))
         if ws_id:
-            data = self.get(f"/api/v1/workspaces/{self._ws(ws_id)}/guardrails/{_q(gid)}")
+            data = self.get(f"/api/v1/workspaces/{self._ws(ws_id)}/guardrails/{g}")
         else:
-            data = self.get(f"/api/v1/admin/guardrails/{_q(gid)}")
-        return dict(data.get("guardrail", data)) if isinstance(data, dict) else {}
+            data = self.get(f"/api/v1/admin/guardrails/{g}")
+        return cast(Guardrail, dict(data.get("guardrail", data)) if isinstance(data, dict) else {})
 
-    def guardrail_by_name(self, ws_id: WsRef | None, name: str) -> dict[str, Any] | None:
+    def guardrail_by_name(self, ws_id: WsRef | None, name: str) -> Guardrail | None:
         return next((g for g in self.guardrails(ws_id) if g.get("name") == name), None)
 
     def create_guardrail(
-        self, ws_id: WsRef, name: str, detector_ids: list[str], description: str = ""
+        self,
+        ws_id: WsRef,
+        name: str,
+        detector_ids: Sequence[Ref],
+        description: str = "",
+        *,
+        deny_suspicious_characters: bool = False,
     ) -> JSON:
+        """``detector_ids`` may be detector names (custom or built-in)."""
         return self.post(
             f"/api/v1/workspaces/{self._ws(ws_id)}/guardrails",
-            guardrail_body(name, detector_ids, description),
+            guardrail_body(
+                name,
+                self._ids("detectors", detector_ids, ws_id),
+                description,
+                deny_suspicious_characters=deny_suspicious_characters,
+            ),
         )
 
     def update_guardrail(
-        self, ws_id: WsRef, gid: str, name: str, detector_ids: list[str], description: str = ""
+        self,
+        ws_id: WsRef,
+        gid: Ref,
+        name: str,
+        detector_ids: Sequence[Ref],
+        description: str = "",
+        *,
+        deny_suspicious_characters: bool = False,
     ) -> JSON:
+        g = _q(self.resolve_guardrail(gid, ws_id))
         return self.put(
-            f"/api/v1/workspaces/{self._ws(ws_id)}/guardrails/{_q(gid)}",
-            guardrail_body(name, detector_ids, description),
+            f"/api/v1/workspaces/{self._ws(ws_id)}/guardrails/{g}",
+            guardrail_body(
+                name,
+                self._ids("detectors", detector_ids, ws_id),
+                description,
+                deny_suspicious_characters=deny_suspicious_characters,
+            ),
         )
 
-    def delete_guardrail(self, gid: str, ws_id: WsRef | None = None) -> JSON:
+    def delete_guardrail(self, gid: Ref, ws_id: WsRef | None = None) -> JSON:
         """Delete a workspace guardrail (``ws_id``) or an org guardrail."""
+        g = _q(self.resolve_guardrail(gid, ws_id))
         if ws_id:
-            return self.delete(f"/api/v1/workspaces/{self._ws(ws_id)}/guardrails/{_q(gid)}")
-        return self.delete(f"/api/v1/admin/guardrails/{_q(gid)}")
+            return self.delete(f"/api/v1/workspaces/{self._ws(ws_id)}/guardrails/{g}")
+        return self.delete(f"/api/v1/admin/guardrails/{g}")
 
     def test_guardrail(
         self,
         text: str,
-        detector_ids: list[str] | None = None,
+        detector_ids: Sequence[Ref] | None = None,
         *,
-        guardrail_id: str | None = None,
+        guardrail_id: Ref | None = None,
         deny_suspicious_characters: bool = False,
         ws_id: WsRef | None = None,
     ) -> JSON:
@@ -732,9 +1144,12 @@ class FortiAIGate:
         Returns ``finalDisposition`` plus a ``results`` row per detector."""
         if not detector_ids and not guardrail_id:
             raise ValueError("detector_ids or guardrail_id is required")
-        if guardrail_id and not detector_ids:
+        ids: list[str] = []
+        if detector_ids:
+            ids = self._ids("detectors", detector_ids, ws_id)
+        elif guardrail_id:
             g = self.guardrail(guardrail_id, ws_id)
-            detector_ids = list(g.get("detectorIds") or [])
+            ids = list(g.get("detectorIds") or [])
             deny_suspicious_characters = bool(
                 g.get("denySuspiciousCharacters", deny_suspicious_characters)
             )
@@ -747,40 +1162,95 @@ class FortiAIGate:
             path,
             {
                 "input": text,
-                "detectorIds": detector_ids,
+                "detectorIds": ids,
                 "denySuspiciousCharacters": deny_suspicious_characters,
             },
         )
 
+    def ensure_guardrail(
+        self,
+        ws_id: WsRef,
+        name: str,
+        detector_ids: Sequence[Ref],
+        description: str = "",
+        *,
+        deny_suspicious_characters: bool = False,
+        approve: bool = True,
+    ) -> Ensured:
+        """Create or update the workspace guardrail ``name`` to use exactly these
+        detectors (ids or names); see ``ensure_detector``."""
+        ws = self.resolve_workspace(ws_id)
+        body = guardrail_body(
+            name,
+            self._ids("detectors", detector_ids, ws),
+            description,
+            deny_suspicious_characters=deny_suspicious_characters,
+        )
+        current = self.guardrail_by_name(ws, name)
+        if current is None:
+            current = cast(Guardrail, self.post(f"/api/v1/workspaces/{_q(ws)}/guardrails", body))
+            action = "created"
+        elif _differs(body, current):
+            self.put(f"/api/v1/workspaces/{_q(ws)}/guardrails/{_q(current['id'])}", body)
+            action = "updated"
+        else:
+            action = "unchanged"
+        if approve:
+            approve_new(self, ws, "guardrails", self.guardrail_by_name(ws, name) or current)
+        return Ensured(dict(self.guardrail_by_name(ws, name) or current), action)
+
     # -- policies --------------------------------------------------------------------
-    def policies(self, ws_id: WsRef | None = None) -> list[dict[str, Any]]:
+    def policies(self, ws_id: WsRef | None = None) -> list[Policy]:
         """A workspace's policies, or (no ``ws_id``) the org's."""
         if ws_id:
-            return self._list(f"/api/v1/workspaces/{self._ws(ws_id)}/policies")
-        return self._list("/api/v1/admin/policies")
+            return cast(
+                "list[Policy]", self._list(f"/api/v1/workspaces/{self._ws(ws_id)}/policies")
+            )
+        return cast("list[Policy]", self._list("/api/v1/admin/policies"))
 
-    def policy(self, pid: str) -> dict[str, Any]:
-        data = self.get(f"/api/v1/admin/policies/{_q(pid)}")
-        return dict(data.get("policy", data)) if isinstance(data, dict) else {}
+    def policy(self, pid: Ref, ws_id: WsRef | None = None) -> Policy:
+        """One policy (org-admin path). ``ws_id`` scopes a name lookup."""
+        data = self.get(f"/api/v1/admin/policies/{_q(self.resolve_policy(pid, ws_id))}")
+        return cast(Policy, dict(data.get("policy", data)) if isinstance(data, dict) else {})
 
-    def policy_by_name(self, ws_id: WsRef | None, name: str) -> dict[str, Any] | None:
+    def policy_by_name(self, ws_id: WsRef | None, name: str) -> Policy | None:
         return next((p for p in self.policies(ws_id) if p.get("name") == name), None)
+
+    def _policy(
+        self,
+        ws_id: WsRef,
+        name: str,
+        inputs: Sequence[Ref],
+        outputs: Sequence[Ref],
+        provider_ids: list[str] | None,
+        description: str,
+        response_scan_mode: str,
+    ) -> dict[str, Any]:
+        return _policy_body(
+            name,
+            self._ids("guardrails", inputs, ws_id),
+            self._ids("guardrails", outputs, ws_id),
+            provider_ids,
+            description,
+            response_scan_mode,
+        )
 
     def create_policy(
         self,
         ws_id: WsRef,
         name: str,
-        input_guardrail_ids: list[str],
-        output_guardrail_ids: list[str],
+        input_guardrail_ids: Sequence[Ref],
+        output_guardrail_ids: Sequence[Ref],
         *,
         provider_ids: list[str] | None = None,
         description: str = "",
         response_scan_mode: str = "post_stream",
     ) -> JSON:
-        """``provider_ids`` grants every model of those providers. Some 8.0.2
-        builds refuse a policy that grants no model (HTTP 422 "a policy must
-        grant at least one model")."""
-        body = _policy_body(
+        """Guardrails may be given by name. ``provider_ids`` grants every model
+        of those providers. Some 8.0.2 builds refuse a policy that grants no
+        model (HTTP 422 "a policy must grant at least one model")."""
+        body = self._policy(
+            ws_id,
             name,
             input_guardrail_ids,
             output_guardrail_ids,
@@ -793,10 +1263,10 @@ class FortiAIGate:
     def update_policy(
         self,
         ws_id: WsRef,
-        pid: str,
+        pid: Ref,
         name: str,
-        input_guardrail_ids: list[str],
-        output_guardrail_ids: list[str],
+        input_guardrail_ids: Sequence[Ref],
+        output_guardrail_ids: Sequence[Ref],
         *,
         provider_ids: list[str] | None = None,
         description: str = "",
@@ -805,38 +1275,98 @@ class FortiAIGate:
         """Replace a workspace policy. Made by an org admin, an edit to an ACTIVE
         policy applies at once (verified on 8.0.2); otherwise check
         ``hasPendingChange`` for an edit held for review."""
-        return self.put(
-            f"/api/v1/workspaces/{self._ws(ws_id)}/policies/{_q(pid)}",
-            _policy_body(
-                name,
-                input_guardrail_ids,
-                output_guardrail_ids,
-                provider_ids,
-                description,
-                response_scan_mode,
-            ),
+        body = self._policy(
+            ws_id,
+            name,
+            input_guardrail_ids,
+            output_guardrail_ids,
+            provider_ids,
+            description,
+            response_scan_mode,
         )
+        p = _q(self.resolve_policy(pid, ws_id))
+        return self.put(f"/api/v1/workspaces/{self._ws(ws_id)}/policies/{p}", body)
 
-    def delete_policy(self, pid: str, ws_id: WsRef | None = None) -> JSON:
+    def delete_policy(self, pid: Ref, ws_id: WsRef | None = None) -> JSON:
         """Delete a workspace policy (``ws_id``) or an org policy."""
+        p = _q(self.resolve_policy(pid, ws_id))
         if ws_id:
-            return self.delete(f"/api/v1/workspaces/{self._ws(ws_id)}/policies/{_q(pid)}")
-        return self.delete(f"/api/v1/admin/policies/{_q(pid)}")
+            return self.delete(f"/api/v1/workspaces/{self._ws(ws_id)}/policies/{p}")
+        return self.delete(f"/api/v1/admin/policies/{p}")
+
+    def ensure_policy(
+        self,
+        ws_id: WsRef,
+        name: str,
+        input_guardrail_ids: Sequence[Ref],
+        output_guardrail_ids: Sequence[Ref],
+        *,
+        provider_ids: list[str] | None = None,
+        description: str = "",
+        response_scan_mode: str = "post_stream",
+        approve: bool = True,
+    ) -> Ensured:
+        """Create or update the workspace policy ``name``; see ``ensure_detector``."""
+        ws = self.resolve_workspace(ws_id)
+        body = self._policy(
+            ws,
+            name,
+            input_guardrail_ids,
+            output_guardrail_ids,
+            provider_ids,
+            description,
+            response_scan_mode,
+        )
+        current = self.policy_by_name(ws, name)
+        if current is None:
+            current = cast(Policy, self.post(f"/api/v1/workspaces/{_q(ws)}/policies", body))
+            action = "created"
+        elif _differs(body, current):
+            self.put(f"/api/v1/workspaces/{_q(ws)}/policies/{_q(current['id'])}", body)
+            action = "updated"
+        else:
+            action = "unchanged"
+        if approve:
+            approve_new(self, ws, "policies", self.policy_by_name(ws, name) or current)
+        return Ensured(dict(self.policy_by_name(ws, name) or current), action)
 
     # -- approval (org admin) ----------------------------------------------------------
-    def submit(self, ws_id: WsRef, kind: str, obj_id: str) -> JSON:
-        """kind: detectors | guardrails | policies"""
-        return self.post(f"/api/v1/workspaces/{self._ws(ws_id)}/{kind}/{_q(obj_id)}/submit")
+    def submit(self, ws_id: WsRef, kind: str, obj_id: Ref) -> JSON:
+        """kind: detectors | guardrails | policies. The object may be given by name."""
+        oid = _q(self._resolve(_kind(kind), obj_id, ws_id))
+        return self.post(f"/api/v1/workspaces/{self._ws(ws_id)}/{kind}/{oid}/submit")
 
-    def withdraw(self, ws_id: WsRef, kind: str, obj_id: str) -> JSON:
+    def withdraw(self, ws_id: WsRef, kind: str, obj_id: Ref) -> JSON:
         """Cancel a pending submission or pending change (kind as for ``submit``)."""
-        return self.delete(f"/api/v1/workspaces/{self._ws(ws_id)}/{kind}/{_q(obj_id)}/pending")
+        oid = _q(self._resolve(_kind(kind), obj_id, ws_id))
+        return self.delete(f"/api/v1/workspaces/{self._ws(ws_id)}/{kind}/{oid}/pending")
 
-    def approve(self, kind: str, obj_id: str) -> JSON:
-        return self.post(f"/api/v1/admin/{kind}/{_q(obj_id)}/approve")
+    def _queued(self, kind: str, obj_id: Ref, ws_id: WsRef | None) -> str:
+        """An id for approve/reject: a name is looked up in the workspace, or
+        (no ``ws_id``) among the review queue's items of that kind."""
+        if ws_id is not None or isinstance(obj_id, Mapping) or _UUID.match(obj_id):
+            return self._resolve(_kind(kind), obj_id, ws_id)
+        found = {
+            str(q.get("id") or q.get("uuid"))
+            for q in self.review_queue()
+            if q.get("name") == obj_id and QUEUE_KIND.get(str(q.get("type"))) == kind
+        }
+        if len(found) != 1:
+            raise LookupError(
+                f"{len(found)} {kind} named {obj_id!r} in the review queue; pass ws_id or the id"
+            )
+        return found.pop()
 
-    def reject(self, kind: str, obj_id: str, reason: str = "rejected") -> JSON:
-        return self.post(f"/api/v1/admin/{kind}/{_q(obj_id)}/reject", {"reason": reason})
+    def approve(self, kind: str, obj_id: Ref, ws_id: WsRef | None = None) -> JSON:
+        """Approve a submitted object. By name, it is found in ``ws_id`` or else
+        in the review queue."""
+        return self.post(f"/api/v1/admin/{kind}/{_q(self._queued(kind, obj_id, ws_id))}/approve")
+
+    def reject(
+        self, kind: str, obj_id: Ref, reason: str = "rejected", ws_id: WsRef | None = None
+    ) -> JSON:
+        oid = _q(self._queued(kind, obj_id, ws_id))
+        return self.post(f"/api/v1/admin/{kind}/{oid}/reject", {"reason": reason})
 
     def review_queue(self) -> list[dict[str, Any]]:
         return self._list("/api/v1/admin/review-queue")
@@ -844,44 +1374,47 @@ class FortiAIGate:
     # -- virtual keys ----------------------------------------------------------------------
     def virtual_keys(
         self, ws_id: WsRef | None = None, *, status: str | None = None
-    ) -> list[dict[str, Any]]:
+    ) -> list[VirtualKey]:
         """A workspace's keys, or (no ``ws_id``) every key; ``status`` filters."""
         if ws_id:
             keys = self._list(f"/api/v1/workspaces/{self._ws(ws_id)}/virtual-keys")
         else:
             keys = self._list("/api/v1/admin/virtual-keys")
-        return [k for k in keys if not status or k.get("status") == status]
+        return cast(
+            "list[VirtualKey]", [k for k in keys if not status or k.get("status") == status]
+        )
 
-    def _key_path(self, key_id: str, ws_id: WsRef | None) -> str:
+    def _key_path(self, key_id: Ref, ws_id: WsRef | None) -> str:
+        kid = _q(self.resolve_virtual_key(key_id, ws_id))
         if ws_id:
-            return f"/api/v1/workspaces/{self._ws(ws_id)}/virtual-keys/{_q(key_id)}"
-        return f"/api/v1/admin/virtual-keys/{_q(key_id)}"
+            return f"/api/v1/workspaces/{self._ws(ws_id)}/virtual-keys/{kid}"
+        return f"/api/v1/admin/virtual-keys/{kid}"
 
-    def virtual_key(self, key_id: str, ws_id: WsRef | None = None) -> dict[str, Any]:
-        """One key, by the workspace path (``ws_id``) or the org-admin path."""
+    def virtual_key(self, key_id: Ref, ws_id: WsRef | None = None) -> VirtualKey:
+        """One key, by the workspace path (``ws_id``) or the org-admin path. The
+        key may be given by id, name, record or its ``faig_...`` secret."""
         data = self.get(self._key_path(key_id, ws_id))
-        return dict(data.get("key", data)) if isinstance(data, dict) else {}
+        return cast(VirtualKey, dict(data.get("key", data)) if isinstance(data, dict) else {})
 
     def create_virtual_key(
         self,
         ws_id: WsRef,
         name: str,
         *,
-        policy_ids: list[str] | None = None,
+        policy_ids: Sequence[Ref] | None = None,
         provider_ids: list[str] | None = None,
         expires_at: str | None = None,
         tpm: int | str | None = None,
         rpm: int | str | None = None,
     ) -> JSON:
-        """Create a key in a workspace. The secret is in the response ONCE
-        (``secret_from_response``) and never readable again."""
+        """Create a key in a workspace; policies may be given by name. The
+        secret is in the response ONCE (``secret_from_response``) and never
+        readable again. Key names need not be unique."""
         body: dict[str, Any] = {"keyName": name}
         if policy_ids is not None:
-            body["policyIds"] = policy_ids
+            body["policyIds"] = self._ids("policies", policy_ids, ws_id)
         if provider_ids is not None:
-            body["providerAccess"] = [
-                {"providerId": p, "allKeys": True, "allModels": True} for p in provider_ids
-            ]
+            body["providerAccess"] = _provider_access(provider_ids)
         for field, value in (("expiresAt", expires_at), ("tpm", tpm), ("rpm", rpm)):
             if value is not None and value != "":
                 body[field] = value
@@ -889,38 +1422,100 @@ class FortiAIGate:
 
     def update_virtual_key(
         self,
-        key_id: str,
+        key_id: Ref,
         *,
         expires_at: str | None = None,
         tpm: int | str | None = None,
         rpm: int | str | None = None,
-        policy_ids: list[str] | None = None,
+        policy_ids: Sequence[Ref] | None = None,
+        provider_ids: list[str] | None = None,
         ws_id: WsRef | None = None,
     ) -> JSON:
         """The update REPLACES the record, so the current one is read and its
         writable fields resent with the changes (8.0.2 rejects read-only fields
         such as ``status`` or ``spend``). ``policy_ids`` replaces the attached
-        policies (org-assigned policies stay forced onto the key regardless)."""
-        body = key_update_body(self.virtual_key(key_id, ws_id))
+        policies (org-assigned policies stay forced onto the key regardless);
+        ``provider_ids`` replaces the providers granted."""
+        path = self._key_path(key_id, ws_id)
+        data = self.get(path)
+        body = key_update_body(dict(data.get("key", data)) if isinstance(data, dict) else {})
         for field, value in (("expiresAt", expires_at), ("tpm", tpm), ("rpm", rpm)):
             if value is not None and value != "":
                 body[field] = value
         if policy_ids is not None:
-            body["policyIds"] = [str(p) for p in policy_ids]
-        return self.put(self._key_path(key_id, ws_id), body)
+            body["policyIds"] = self._ids("policies", policy_ids, ws_id)
+        if provider_ids is not None:
+            body["providerAccess"] = _provider_access(provider_ids)
+        return self.put(path, body)
 
-    def rotate_virtual_key(self, key_id: str, ws_id: WsRef | None = None) -> JSON:
+    def rotate_virtual_key(self, key_id: Ref, ws_id: WsRef | None = None) -> JSON:
         """New secret, once, in the response (``secret_from_response``)."""
         return self.post(self._key_path(key_id, ws_id) + "/rotate")
 
     def revoke_virtual_key(
-        self, key_id: str, reason: str = "revoked", ws_id: WsRef | None = None
+        self, key_id: Ref, reason: str = "revoked", ws_id: WsRef | None = None
     ) -> JSON:
         """The secret stops working; 8.0.2 requires a ``reason``."""
         return self.post(self._key_path(key_id, ws_id) + "/revoke", {"reason": reason})
 
-    def delete_virtual_key(self, key_id: str, ws_id: WsRef | None = None) -> JSON:
+    def delete_virtual_key(self, key_id: Ref, ws_id: WsRef | None = None) -> JSON:
         return self.delete(self._key_path(key_id, ws_id))
+
+    def ensure_virtual_key(
+        self,
+        ws_id: WsRef,
+        name: str,
+        *,
+        policy_ids: Sequence[Ref] | None = None,
+        provider_ids: list[str] | None = None,
+        expires_at: str | None = None,
+        tpm: int | str | None = None,
+        rpm: int | str | None = None,
+    ) -> Ensured:
+        """Create the workspace's active key ``name``, or bring an existing one's
+        policies, providers and limits in line (only the arguments given are
+        checked). A created key's secret is in ``Ensured.secret``; an existing
+        key's secret cannot be read again (rotate it if you need one). Revoked
+        keys are ignored; two active keys with the name are refused."""
+        ws = self.resolve_workspace(ws_id)
+        active = [k for k in self.virtual_keys(ws) if k.get("keyName") == name]
+        active = [k for k in active if k.get("status") != "revoked"]
+        if len(active) > 1:
+            raise ValueError(f"{len(active)} active keys are named {name!r}; pass the id")
+        policies = None if policy_ids is None else self._ids("policies", policy_ids, ws)
+        if not active:
+            created = self.create_virtual_key(
+                ws,
+                name,
+                policy_ids=policies,
+                provider_ids=provider_ids,
+                expires_at=expires_at,
+                tpm=tpm,
+                rpm=rpm,
+            )
+            secret = secret_from_response(created)
+            record = self.virtual_key(key_id_from_secret(secret)) if secret else created
+            return Ensured(dict(record), "created", secret)
+        current = self.virtual_key(active[0]["id"], ws)
+        have = key_update_body(current)
+        want: dict[str, Any] = {}
+        if policies is not None and sorted(policies) != sorted(have.get("policyIds") or []):
+            want["policy_ids"] = policies
+        if provider_ids is not None and sorted(provider_ids) != sorted(
+            str(a.get("providerId")) for a in have.get("providerAccess") or []
+        ):
+            want["provider_ids"] = provider_ids
+        for arg, field, value in (
+            ("expires_at", "expiresAt", expires_at),
+            ("tpm", "tpm", tpm),
+            ("rpm", "rpm", rpm),
+        ):
+            if value not in (None, "") and str(value) != str(have.get(field)):
+                want[arg] = value
+        if not want:
+            return Ensured(dict(current), "unchanged")
+        self.update_virtual_key(current["id"], ws_id=ws, **want)
+        return Ensured(dict(self.virtual_key(current["id"], ws)), "updated")
 
     # -- providers, models, audit ----------------------------------------------------------
     def ai_providers(self) -> list[dict[str, Any]]:
@@ -957,10 +1552,73 @@ class FortiAIGate:
         return self._list("/api/v1/admin/dlp-labels")
 
     def audit_logs(self, offset: int = 0, limit: int = 25) -> JSON:
+        """One page of the org audit log, newest first. ``iter_audit_logs``
+        filters by time, user, role, action and workspace, and follows pages."""
         return self.get("/api/v1/admin/audit-logs", {"offset": int(offset), "limit": int(limit)})
 
-    def audit_log_filter_options(self) -> JSON:
-        return self.get("/api/v1/admin/audit-logs/filter-options")
+    def audit_logs_page(
+        self,
+        cursor: str | None = None,
+        *,
+        range: str = "24h",
+        start: When | None = None,
+        end: When | None = None,
+        filters: Mapping[str, Any] | None = None,
+        limit: int = LOG_PAGE,
+        ws_id: WsRef | None = None,
+    ) -> JSON:
+        """One page of audit log rows, cursor-paged like ``traffic_logs_page``.
+        ``filters`` fields: user, role, action, message, workspace (spell
+        actions as ``audit_log_filter_options`` lists them: ``Approve``, ...)."""
+        q = _log_window(range, start, end)
+        q.update(_log_filters(filters, AUDIT_FILTERS))
+        return self.get(self._logs_base("audit-logs", ws_id), _cursor_query(q, cursor, limit))
+
+    def iter_audit_logs(
+        self,
+        *,
+        range: str = "24h",
+        start: When | None = None,
+        end: When | None = None,
+        filters: Mapping[str, Any] | None = None,
+        max_items: int | None = None,
+        page_size: int = LOG_PAGE,
+        ws_id: WsRef | None = None,
+    ) -> Iterator[AuditLogRow]:
+        """Every matching audit log row, newest first, following ``nextCursor``."""
+        rows = _follow(
+            lambda cursor: self.audit_logs_page(
+                cursor,
+                range=range,
+                start=start,
+                end=end,
+                filters=filters,
+                limit=page_size,
+                ws_id=ws_id,
+            ),
+            max_items,
+        )
+        return cast("Iterator[AuditLogRow]", rows)
+
+    def audit_log_filter_options(
+        self,
+        *,
+        range: str | None = None,
+        start: When | None = None,
+        end: When | None = None,
+        ws_id: WsRef | None = None,
+    ) -> JSON:
+        """The values each audit filter can take (users, roles, actions, ...)."""
+        q = (
+            _log_window(range or "24h", start, end)
+            if range or start is not None or end is not None
+            else {}
+        )
+        return self.get(f"{self._logs_base('audit-logs', ws_id)}/filter-options", q or None)
+
+    def licenses(self) -> JSON:
+        """The appliance's licenses (serial, status, end date, GPU mapping)."""
+        return self.get("/api/v1/licenses")
 
     # -- usage, cost and analytics ---------------------------------------------------------
     def _report(
@@ -1129,12 +1787,7 @@ class FortiAIGate:
         on the first page only). Pass the previous ``nextCursor`` to go on."""
         q = _log_window(range, start, end)
         q.update(_log_filters(filters, TRAFFIC_FILTERS))
-        q.update({"limit": int(limit), "direction": "next"})
-        if cursor:
-            q["cursor"] = cursor
-        else:
-            q["includeTotal"] = "true"
-        return self.get(self._logs_base("traffic-logs", ws_id), q)
+        return self.get(self._logs_base("traffic-logs", ws_id), _cursor_query(q, cursor, limit))
 
     def traffic_logs(
         self,
@@ -1146,19 +1799,18 @@ class FortiAIGate:
         max_items: int | None = None,
         page_size: int = LOG_PAGE,
         ws_id: WsRef | None = None,
-    ) -> Iterator[dict[str, Any]]:
+    ) -> Iterator[TrafficLogRow]:
         """Every matching traffic log row, newest first, following ``nextCursor``.
 
         ``range``: 24h | 7d | month | all, or pass ``start``/``end``
         (``datetime`` or epoch milliseconds) for a custom window. ``filters``
         maps a field (verdict, user, workspace, virtual_key, model,
         traffic_type, request_path) to a value, a list of values (``is``), or
-        ``{"operator": ..., "value": [...]}``. Rows are summaries; the full
-        record (tokens, cost, prompt, detector) is ``traffic_log(uuid)``."""
-        cursor: str | None = None
-        seen = 0
-        while True:
-            page = self.traffic_logs_page(
+        ``{"operator": ..., "value": [...]}``. ``virtual_key`` takes the key's
+        NAME. Rows are summaries; the full record (tokens, cost, prompt,
+        detector) is ``traffic_log(uuid)``."""
+        rows = _follow(
+            lambda cursor: self.traffic_logs_page(
                 cursor,
                 range=range,
                 start=start,
@@ -1166,21 +1818,44 @@ class FortiAIGate:
                 filters=filters,
                 limit=page_size,
                 ws_id=ws_id,
-            )
-            for row in items(page):
-                yield row
-                seen += 1
-                if max_items is not None and seen >= max_items:
-                    return
-            cursor = page.get("nextCursor") if isinstance(page, dict) else None
-            if not cursor or not page.get("hasNext", True):
-                return
+            ),
+            max_items,
+        )
+        return cast("Iterator[TrafficLogRow]", rows)
 
-    def traffic_log(self, uuid: str, ws_id: WsRef | None = None) -> dict[str, Any]:
+    def wait_for_traffic(
+        self,
+        since: When,
+        *,
+        filters: Mapping[str, Any] | None = None,
+        count: int = 1,
+        timeout: float = 60,
+        interval: float = 2,
+        ws_id: WsRef | None = None,
+    ) -> list[TrafficLogRow]:
+        """Poll until ``count`` traffic log rows matching ``filters`` exist from
+        ``since`` (a ``datetime`` or epoch ms, taken BEFORE sending the request)
+        on; rows land a few seconds after the request. Returns them, newest
+        first; raises ``TimeoutError`` after ``timeout`` seconds."""
+        start = _ms(since) - 2000  # tolerate a little clock skew with the appliance
+        deadline = time.monotonic() + timeout
+        while True:
+            end = int(time.time() * 1000) + 60_000
+            rows = list(self.traffic_logs(start=start, end=end, filters=filters, ws_id=ws_id))
+            if len(rows) >= count:
+                return rows
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"{len(rows)} of {count} traffic log rows after {timeout:g}s"
+                    f" (filters: {filters})"
+                )
+            time.sleep(interval)
+
+    def traffic_log(self, uuid: str, ws_id: WsRef | None = None) -> TrafficLog:
         """The full record: model, verdict, action, detector, guardrail, policy,
         prompt, cost, latency, http status, request id."""
         data = self.get(f"{self._logs_base('traffic-logs', ws_id)}/{_q(uuid)}")
-        return dict(data) if isinstance(data, dict) else {}
+        return cast(TrafficLog, dict(data) if isinstance(data, dict) else {})
 
     def traffic_log_filter_options(
         self,
@@ -1287,7 +1962,7 @@ class FortiAIGate:
             return {"valid": True, "model_count": len(items(json.loads(txt))), "http_status": st}
         if st in (401, 403):
             return {"valid": False, "model_count": 0, "http_status": st}
-        raise FaigError("GET", path, st, txt)
+        raise error_for("GET", path, st, txt)
 
     def available_models(self, api_key: str) -> list[str]:
         """The model names a virtual key may call (what ``chat_completion``
@@ -1296,7 +1971,7 @@ class FortiAIGate:
         path = "/ai/openai/v1/models"
         st, txt = self._gateway("GET", path, api_key)
         if st != 200:
-            raise FaigError("GET", path, st, txt)
+            raise error_for("GET", path, st, txt)
         return [str(m.get("id")) for m in items(json.loads(txt)) if m.get("id")]
 
     def can_use_model(self, api_key: str, model: str) -> bool:
@@ -1326,8 +2001,72 @@ class FortiAIGate:
         path = "/ai/openai/v1/chat/completions"
         st, txt = self._gateway("POST", path, api_key, body, timeout=max(self.timeout, timeout))
         if st != 200:
-            raise FaigError("POST", path, st, txt)
+            raise error_for("POST", path, st, txt)
         return json.loads(txt)
+
+    def chat_completion_stream(
+        self,
+        api_key: str,
+        model: str,
+        messages: list[dict[str, Any]],
+        *,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        timeout: float = 120,
+        **extra: Any,
+    ) -> Iterator[dict[str, Any]]:
+        """A streamed chat completion: yields each ``chat.completion.chunk`` as
+        it arrives. A guardrail block arrives as chunks too (the block message,
+        then ``finish_reason: content_filter``), including one raised by
+        ``in_stream`` response scanning mid-answer. ``collect_stream`` joins
+        the chunks into one completion that ``blocked`` understands.
+
+        Runs on its own connection and is never retried (it is a POST)."""
+        if not messages:
+            raise ValueError("messages must be a non-empty list")
+        body: dict[str, Any] = {"model": model, "messages": messages, "stream": True, **extra}
+        if max_tokens:
+            body["max_tokens"] = int(max_tokens)
+        if temperature is not None:
+            body["temperature"] = float(temperature)
+        path = "/ai/openai/v1/chat/completions"
+        u = urllib.parse.urlsplit(self.gateway_url)
+        conn: http.client.HTTPConnection
+        t = max(self.timeout, timeout)
+        if u.scheme == "https":
+            conn = http.client.HTTPSConnection(
+                u.hostname or "", u.port or 443, context=self._ctx, timeout=t
+            )
+        else:
+            conn = http.client.HTTPConnection(u.hostname or "", u.port or 80, timeout=t)
+        try:
+            conn.request(
+                "POST",
+                path,
+                body=json.dumps(body).encode(),
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "Accept": "text/event-stream",
+                },
+            )
+            resp = conn.getresponse()
+            if resp.status != 200:
+                raise error_for("POST", path, resp.status, resp.read().decode(errors="replace"))
+            if "event-stream" not in (resp.getheader("Content-Type") or ""):
+                yield json.loads(resp.read() or b"{}")  # answered without streaming
+                return
+            for raw in resp:
+                line = raw.decode(errors="replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    return
+                if data:
+                    yield json.loads(data)
+        finally:
+            conn.close()
 
 
 Day = dt.date | str
@@ -1370,6 +2109,82 @@ def _rank_query(
     if interval is not None:
         q["interval"] = _one_of("interval", interval, INTERVALS)
     return q
+
+
+def _cursor_query(q: dict[str, Any], cursor: str | None, limit: int) -> dict[str, Any]:
+    q.update({"limit": int(limit), "direction": "next"})
+    if cursor:
+        q["cursor"] = cursor
+    else:
+        q["includeTotal"] = "true"
+    return q
+
+
+def _follow(page: Any, max_items: int | None) -> Iterator[dict[str, Any]]:
+    """Rows from ``page(cursor)`` calls, following ``nextCursor``."""
+    cursor: str | None = None
+    seen = 0
+    while True:
+        data = page(cursor)
+        for row in items(data):
+            yield row
+            seen += 1
+            if max_items is not None and seen >= max_items:
+                return
+        cursor = data.get("nextCursor") if isinstance(data, dict) else None
+        if not cursor or not data.get("hasNext", True):
+            return
+
+
+_SINGULAR = {
+    "detectors": "detector",
+    "guardrails": "guardrail",
+    "policies": "policy",
+    "virtual-keys": "virtual key",
+}
+
+
+def _kind(kind: str) -> str:
+    return _one_of("kind", kind, ("detectors", "guardrails", "policies"))
+
+
+def _provider_access(provider_ids: Iterable[str]) -> list[dict[str, Any]]:
+    return [{"providerId": p, "allKeys": True, "allModels": True} for p in provider_ids]
+
+
+def _differs(want: Any, have: Any) -> bool:
+    """Does the stored record ``have`` differ from ``want`` in any field
+    ``want`` sets? Fields the appliance adds are ignored, ``None`` in ``want``
+    means "not set", and lists of plain ids compare as sets."""
+    if want is None:
+        return False
+    if isinstance(want, Mapping):
+        if not isinstance(have, Mapping):
+            return True
+        return any(_differs(v, have.get(k)) for k, v in want.items())
+    if isinstance(want, (list, tuple)):
+        if not isinstance(have, (list, tuple)) or len(want) != len(have):
+            return True
+        if all(isinstance(x, str) for x in want) and all(isinstance(x, str) for x in have):
+            return sorted(want) != sorted(have)
+        return any(_differs(w, h) for w, h in zip(want, have, strict=True))
+    return bool(want != have)
+
+
+def _retry_after(headers: Any) -> float | None:
+    """A ``Retry-After`` header as seconds (it may be a delay or an HTTP date)."""
+    value = headers.get("Retry-After") if headers is not None else None
+    if not value:
+        return None
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        pass
+    try:
+        when = email.utils.parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, (when - dt.datetime.now(dt.timezone.utc)).total_seconds())
 
 
 def _ms(t: When) -> int:
@@ -1442,6 +2257,38 @@ def _q(segment: str) -> str:
     return urllib.parse.quote(str(segment), safe="")
 
 
+def collect_stream(chunks: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
+    """Join ``chat_completion_stream`` chunks into one ``chat.completion``:
+    each choice's ``message.content`` is its deltas joined, ``finish_reason``
+    the last one given. A non-streamed completion passes through unchanged."""
+    out: dict[str, Any] = {"object": "chat.completion", "choices": []}
+    choices: dict[int, dict[str, Any]] = {}
+    for chunk in chunks:
+        if any("message" in c for c in chunk.get("choices") or []):
+            return dict(chunk)
+        for key in ("id", "model", "created", "usage"):
+            if chunk.get(key) is not None:
+                out[key] = chunk[key]
+        for c in chunk.get("choices") or []:
+            slot = choices.setdefault(
+                int(c.get("index", 0)),
+                {
+                    "index": int(c.get("index", 0)),
+                    "message": {"role": "assistant", "content": ""},
+                    "finish_reason": None,
+                },
+            )
+            delta = c.get("delta") or {}
+            if delta.get("role"):
+                slot["message"]["role"] = delta["role"]
+            if delta.get("content"):
+                slot["message"]["content"] += delta["content"]
+            if c.get("finish_reason"):
+                slot["finish_reason"] = c["finish_reason"]
+    out["choices"] = [choices[i] for i in sorted(choices)]
+    return out
+
+
 def blocked(completion: JSON) -> bool:
     """Did a guardrail block this chat completion?"""
     choices = completion.get("choices") if isinstance(completion, dict) else None
@@ -1476,14 +2323,20 @@ def key_update_body(record: Mapping[str, Any]) -> dict[str, Any]:
 
 
 # -- body builders ------------------------------------------------------------------------
-def guardrail_body(name: str, detector_ids: list[str], description: str = "") -> dict[str, Any]:
+def guardrail_body(
+    name: str,
+    detector_ids: list[str],
+    description: str = "",
+    *,
+    deny_suspicious_characters: bool = False,
+) -> dict[str, Any]:
     if not detector_ids:
         raise ValueError("a guardrail needs at least one detector")
     return {
         "name": name,
         "description": description or name,
         "detectorIds": list(detector_ids),
-        "denySuspiciousCharacters": False,
+        "denySuspiciousCharacters": deny_suspicious_characters,
     }
 
 
@@ -1596,14 +2449,15 @@ def ai_detector_body(
 
 
 def approve_new(admin: FortiAIGate, ws_id: WsRef, kind: str, obj: Mapping[str, Any]) -> JSON:
-    """Walk a freshly created workspace object draft -> pending -> active. Losing
-    the race to another approver (it is no longer pending) is not an error."""
-    oid = obj.get("uuid") or obj["id"]
+    """Walk a workspace object draft -> pending -> active, or approve an
+    active one's pending change. Losing the race to another approver (it is no
+    longer pending) is not an error."""
+    oid = str(obj.get("uuid") or obj["id"])
     status = obj.get("approvalStatus") or obj.get("status")
     if status == "draft":
         admin.submit(ws_id, kind, oid)
         status = "pending"
-    if status == "pending":
+    if status == "pending" or (status == "active" and obj.get("hasPendingChange")):
         try:
             return admin.approve(kind, oid)
         except FaigError as e:

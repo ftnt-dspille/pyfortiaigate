@@ -12,8 +12,9 @@ already have been applied:
 | Connection dropped after the request was sent | retried | **raised**: it may have landed |
 | HTTP error status (4xx, 5xx) | raised | raised |
 
-The one exception for HTTP statuses: a single re-login on `401` and a single
-fresh CSRF token on a CSRF `403`. Each retry is logged as a warning on the
+The exceptions for HTTP statuses: a single re-login on `401`, a single fresh
+CSRF token on a CSRF `403`, and waiting out `429` when the client has a
+`rate_limit_wait` budget (see [Errors & rate limits](errors.md)). Each retry is logged as a warning on the
 `pyfortiaigate` logger:
 
 ```python

@@ -34,6 +34,9 @@ lint = ["ruff==0.16.10"]
 docs = ["mkdocs>=1.6,<2", "mkdocs-material>=9.5", "mkdocstrings[python]>=0.26"]
 dev = ["pyfortiaigate[test,typecheck,lint,docs]"]
 
+[project.scripts]
+pyfortiaigate = "pyfortiaigate.cli:main"
+
 [project.urls]
 Homepage = "https://github.com/ftnt-dspille/pyfortiaigate"
 Repository = "https://github.com/ftnt-dspille/pyfortiaigate.git"
@@ -62,6 +65,7 @@ branch = true
 show_missing = true
 skip_covered = true
 fail_under = 97
+omit = ["*/__main__.py"]
 exclude_also = ["raise AssertionError\\(\"unreachable\"\\)", "if TYPE_CHECKING:"]
 
 [tool.mypy]

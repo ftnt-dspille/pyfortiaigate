@@ -4,6 +4,26 @@
 
 ::: pyfortiaigate.FaigError
 
+::: pyfortiaigate.AuthError
+
+::: pyfortiaigate.NotFound
+
+::: pyfortiaigate.ModelNotAvailable
+
+::: pyfortiaigate.Conflict
+
+::: pyfortiaigate.ValidationError
+
+::: pyfortiaigate.RateLimited
+
+::: pyfortiaigate.ServerError
+
+::: pyfortiaigate.error_for
+
+## Results
+
+::: pyfortiaigate.Ensured
+
 ## Body builders
 
 ::: pyfortiaigate.regex_detector_body
@@ -27,6 +47,8 @@
 ::: pyfortiaigate.breakdown_items
 
 ::: pyfortiaigate.blocked
+
+::: pyfortiaigate.collect_stream
 
 ::: pyfortiaigate.secret_from_response
 

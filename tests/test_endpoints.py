@@ -105,14 +105,14 @@ CASES: list[tuple[Callable[[FortiAIGate], Any], str, str, Any]] = [
     (lambda c: c.policies(), "GET", "/api/v1/admin/policies", None),
     (lambda c: c.policy("p1"), "GET", "/api/v1/admin/policies/p1", None),
     (
-        lambda c: c.create_policy("w1", "p", ["gi"], ["go"]),
+        lambda c: c.create_policy("w1", "p", ["g1"], ["g2"]),
         "POST",
         "/api/v1/workspaces/w1/policies",
         {
             "name": "p",
             "description": "p",
-            "inputGuardrailIds": ["gi"],
-            "outputGuardrailIds": ["go"],
+            "inputGuardrailIds": ["g1"],
+            "outputGuardrailIds": ["g2"],
             "responseScanMode": "post_stream",
         },
     ),

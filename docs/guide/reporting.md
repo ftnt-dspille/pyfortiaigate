@@ -64,6 +64,32 @@ filters = {
 ICAP logs (FortiGate-inspected traffic) work the same way through `icap_logs()`,
 with their own filter fields. An appliance with ICAP turned off answers 404.
 
+## Waiting for a request's log row
+
+Traffic log rows land a few seconds after the request. Note the time BEFORE
+sending, then wait for the row:
+
+```python
+import datetime as dt
+
+sent = dt.datetime.now(dt.timezone.utc)
+faig.chat_completion(secret, model, messages)
+rows = faig.wait_for_traffic(sent, filters={"virtual_key": "student04"}, timeout=60)
+print(rows[0]["verdictLabel"], faig.traffic_log(rows[0]["uuid"])["detector"])
+```
+
+The `virtual_key` filter takes the key's NAME (its `keyAlias` in the rows).
+
+## Audit log
+
+```python
+for row in faig.iter_audit_logs(range="7d", filters={"action": "Approve"}):
+    print(row["username"], row["message"])
+```
+
+Same time and filter rules as the traffic log; filters are user, role, action,
+message and workspace.
+
 ## Which models can a key call?
 
 A request for a model the key is not granted fails with 404 "model not available

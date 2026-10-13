@@ -4,6 +4,14 @@ Every client method and the API call it makes. `{ws}` is a workspace id; list
 methods return the records (unwrapped from `{"items": [...]}`), the rest return
 the decoded JSON response.
 
+**Names work everywhere.** A workspace, detector, guardrail, policy or virtual
+key argument takes its id, its name, or its record. Detector, guardrail and
+policy names are unique in a workspace (8.0.2 refuses a duplicate with 409), so
+a name is looked up in the method's `ws_id` (org-wide without one). A detector
+name may also be a built-in detector's name or slug. Key names are NOT unique:
+two keys with one name raise `ValueError`; a key can also be given by its
+`faig_...` secret. An unknown name raises `LookupError`.
+
 ## Session & raw calls
 
 | Method | HTTP | Notes |
@@ -62,6 +70,8 @@ Names are resolved once and cached; an unknown name raises `LookupError`.
 | `delete_detector(uuid, ws_id=None)` | `DELETE /api/v1/workspaces/{ws}/detectors/{uuid}` or `DELETE /api/v1/admin/detectors/{uuid}` | |
 | `playground(text, body, ws_id=None)` | `POST /api/v1/workspaces/{ws}/detectors/test` or `POST /api/v1/admin/detectors/test` | Scan text with an UNSAVED detector body (the console Playground). |
 | `test_detector(ws_id, uuid, text)` | `POST /api/v1/workspaces/{ws}/detectors/{uuid}/test` | Scan with a SAVED detector: `matched`, `score`, `spans`. |
+| `resolve_detector(ref, ws_id=None)` | `GET .../detectors` (+ built-ins, cached) | A detector's uuid from its uuid, name, slug or record. |
+| `ensure_detector(ws_id, body, approve=True)` | list, then `POST` or `PUT`, then approval | Create, update or leave alone, by `body["name"]`. Returns `Ensured`. |
 
 ## Guardrails
 
@@ -70,22 +80,25 @@ Names are resolved once and cached; an unknown name raises `LookupError`.
 | `guardrails(ws_id=None)` | `GET /api/v1/workspaces/{ws}/guardrails` or `GET /api/v1/admin/guardrails` | |
 | `guardrail(gid, ws_id=None)` | `GET /api/v1/workspaces/{ws}/guardrails/{id}` or `GET /api/v1/admin/guardrails/{id}` | |
 | `guardrail_by_name(ws_id, name)` | as `guardrails` | `ws_id=None` searches org guardrails. |
-| `create_guardrail(ws_id, name, detector_ids, description)` | `POST /api/v1/workspaces/{ws}/guardrails` | Needs at least one detector. |
-| `update_guardrail(ws_id, gid, name, detector_ids, description)` | `PUT /api/v1/workspaces/{ws}/guardrails/{id}` | |
+| `create_guardrail(ws_id, name, detector_ids, description, deny_suspicious_characters=)` | `POST /api/v1/workspaces/{ws}/guardrails` | Needs at least one detector (ids or names). |
+| `update_guardrail(ws_id, gid, name, detector_ids, description, deny_suspicious_characters=)` | `PUT /api/v1/workspaces/{ws}/guardrails/{id}` | |
 | `delete_guardrail(gid, ws_id=None)` | `DELETE /api/v1/workspaces/{ws}/guardrails/{id}` or `DELETE /api/v1/admin/guardrails/{id}` | |
 | `test_guardrail(text, detector_ids, guardrail_id=, deny_suspicious_characters=, ws_id=)` | `POST /api/v1/workspaces/{ws}/guardrails/test` or `POST /api/v1/admin/guardrails/test` | The guardrail tester: scans text without an LLM; `finalDisposition` plus a result per detector. |
+| `resolve_guardrail(ref, ws_id=None)` | `GET .../guardrails` | A guardrail's id from its id, name or record. |
+| `ensure_guardrail(ws_id, name, detector_ids, description, deny_suspicious_characters=, approve=True)` | list, then `POST` or `PUT`, then approval | Returns `Ensured`. |
 
 ## Policies
 
 | Method | HTTP | Notes |
 |---|---|---|
 | `policies(ws_id=None)` | `GET /api/v1/workspaces/{ws}/policies` or `GET /api/v1/admin/policies` | |
-| `policy(pid)` | `GET /api/v1/admin/policies/{id}` | |
+| `policy(pid, ws_id=None)` | `GET /api/v1/admin/policies/{id}` | `ws_id` scopes a name lookup. |
 | `policy_by_name(ws_id, name)` | as `policies` | |
 | `create_policy(ws_id, name, input_guardrail_ids, output_guardrail_ids, provider_ids=, description=, response_scan_mode=)` | `POST /api/v1/workspaces/{ws}/policies` | `provider_ids` grants all of those providers' models; some builds require at least one. |
-
 | `update_policy(ws_id, pid, name, input_guardrail_ids, output_guardrail_ids, provider_ids=, description=, response_scan_mode=)` | `PUT /api/v1/workspaces/{ws}/policies/{id}` | By an org admin, an edit to an active policy applies at once. |
 | `delete_policy(pid, ws_id=None)` | `DELETE /api/v1/workspaces/{ws}/policies/{id}` or `DELETE /api/v1/admin/policies/{id}` | |
+| `resolve_policy(ref, ws_id=None)` | `GET .../policies` | A policy's id from its id, name or record. |
+| `ensure_policy(ws_id, name, input_guardrail_ids, output_guardrail_ids, provider_ids=, description=, response_scan_mode=, approve=True)` | list, then `POST` or `PUT`, then approval | Guardrails by id or name. Returns `Ensured`. |
 
 ## Approval workflow
 
@@ -93,8 +106,8 @@ Names are resolved once and cached; an unknown name raises `LookupError`.
 |---|---|---|
 | `submit(ws_id, kind, obj_id)` | `POST /api/v1/workspaces/{ws}/{kind}/{id}/submit` | `kind`: `detectors`, `guardrails`, `policies`. |
 | `withdraw(ws_id, kind, obj_id)` | `DELETE /api/v1/workspaces/{ws}/{kind}/{id}/pending` | Cancel a pending submission or change. |
-| `approve(kind, obj_id)` | `POST /api/v1/admin/{kind}/{id}/approve` | |
-| `reject(kind, obj_id, reason)` | `POST /api/v1/admin/{kind}/{id}/reject` | |
+| `approve(kind, obj_id, ws_id=None)` | `POST /api/v1/admin/{kind}/{id}/approve` | By name: looked up in `ws_id`, or else in the review queue. |
+| `reject(kind, obj_id, reason, ws_id=None)` | `POST /api/v1/admin/{kind}/{id}/reject` | As `approve`. |
 | `review_queue()` | `GET /api/v1/admin/review-queue` | Map an item's `type` with `QUEUE_KIND`. |
 
 See also [`approve_new`](reference/helpers.md#pyfortiaigate.approve_new).
@@ -106,10 +119,12 @@ See also [`approve_new`](reference/helpers.md#pyfortiaigate.approve_new).
 | `virtual_keys(ws_id=None, status=)` | `GET /api/v1/workspaces/{ws}/virtual-keys` or `GET /api/v1/admin/virtual-keys` | |
 | `virtual_key(key_id, ws_id=None)` | `GET /api/v1/workspaces/{ws}/virtual-keys/{id}` or `GET /api/v1/admin/virtual-keys/{id}` | Every key call takes `ws_id=` for the workspace path. |
 | `create_virtual_key(ws_id, name, policy_ids=, provider_ids=, expires_at=, tpm=, rpm=)` | `POST /api/v1/workspaces/{ws}/virtual-keys` | The secret is returned once. |
-| `update_virtual_key(key_id, expires_at=, tpm=, rpm=, policy_ids=, ws_id=)` | `GET` + `PUT .../virtual-keys/{id}` | Resends the record's writable fields with your changes. |
+| `update_virtual_key(key_id, expires_at=, tpm=, rpm=, policy_ids=, provider_ids=, ws_id=)` | `GET` + `PUT .../virtual-keys/{id}` | Resends the record's writable fields with your changes. |
 | `rotate_virtual_key(key_id, ws_id=None)` | `POST .../virtual-keys/{id}/rotate` | New secret, once. |
 | `revoke_virtual_key(key_id, reason, ws_id=None)` | `POST .../virtual-keys/{id}/revoke` | The secret stops working; a reason is required. |
 | `delete_virtual_key(key_id, ws_id=None)` | `DELETE .../virtual-keys/{id}` | |
+| `resolve_virtual_key(ref, ws_id=None)` | `GET .../virtual-keys` | A key's id from its id, name, record or `faig_...` secret. |
+| `ensure_virtual_key(ws_id, name, policy_ids=, provider_ids=, expires_at=, tpm=, rpm=)` | list, then `POST` or `GET` + `PUT` | Create the active key `name` (secret in `Ensured.secret`) or bring it in line. |
 
 ## Models & what a key can use
 
@@ -158,17 +173,25 @@ them and return every row.
 | `traffic_logs_page(cursor, ...)` | `GET .../traffic-logs` | One page with `nextCursor`, `hasNext`, `total` (first page). |
 | `traffic_log(uuid, ws_id=)` | `GET .../traffic-logs/{uuid}` | Full record: verdict, action, detector, guardrail, policy, prompt, cost, latency. |
 | `traffic_log_filter_options(range=, start=, end=, ws_id=)` | `GET .../traffic-logs/filter-options` | Values each filter can take. |
+| `wait_for_traffic(since, filters=, count=1, timeout=60, interval=2, ws_id=)` | `GET .../traffic-logs` (polled) | Rows land seconds after a request: wait for `count` rows from `since` on. `TimeoutError` otherwise. |
 | `icap_logs(...)` | `GET .../icap-logs` | Iterator (offset paging). Filters: verdict, direction, user, application, fortigate, shadow_ai, inspection. 404 when ICAP is off. |
 | `icap_logs_page(offset, ...)` | `GET .../icap-logs` | |
 | `icap_log(uuid, ws_id=)` | `GET .../icap-logs/{uuid}` | |
 | `icap_log_filter_options(...)` | `GET .../icap-logs/filter-options` | |
 
-## Providers & audit
+## Audit log & licenses
+
+The audit log takes the same `range=` / `start=` / `end=` and `filters=` as the
+traffic log. Filters: user, role, action, message, workspace; spell actions as
+`audit_log_filter_options()` lists them (`Approve`, `Create`, ...).
 
 | Method | HTTP | Notes |
 |---|---|---|
-| `audit_logs(offset, limit)` | `GET /api/v1/admin/audit-logs` | |
-| `audit_log_filter_options()` | `GET /api/v1/admin/audit-logs/filter-options` | |
+| `iter_audit_logs(range=, start=, end=, filters=, max_items=, page_size=, ws_id=)` | `GET .../audit-logs` | Iterator; follows `nextCursor`. |
+| `audit_logs_page(cursor, ...)` | `GET .../audit-logs` | One page. |
+| `audit_logs(offset, limit)` | `GET /api/v1/admin/audit-logs` | One page by offset, no filters. |
+| `audit_log_filter_options(range=, start=, end=, ws_id=)` | `GET .../audit-logs/filter-options` | Users, roles, actions, workspaces seen. |
+| `licenses()` | `GET /api/v1/licenses` | Serial, status, end date, GPU mapping. |
 
 ## Gateway (data plane)
 
@@ -179,4 +202,5 @@ Authenticated with a virtual key secret, never the session.
 | `check_key(api_key)` | `GET /ai/openai/v1/models` | `{"valid", "model_count", "http_status"}`. |
 | `available_models(api_key)` | `GET /ai/openai/v1/models` | Model names the key may call. A model missing here 404s with "model not available to this API key". |
 | `can_use_model(api_key, model)` | `GET /ai/openai/v1/models` | `model in available_models(api_key)`. |
-| `chat_completion(api_key, model, messages, max_tokens=, temperature=, **extra)` | `POST /ai/openai/v1/chat/completions` | A guardrail block is a 200; test it with `blocked()`. |
+| `chat_completion(api_key, model, messages, max_tokens=, temperature=, **extra)` | `POST /ai/openai/v1/chat/completions` | A guardrail block is a 200; test it with `blocked()`. A model the key lacks raises `ModelNotAvailable`. |
+| `chat_completion_stream(api_key, model, messages, max_tokens=, temperature=, **extra)` | `POST /ai/openai/v1/chat/completions` (`stream: true`) | Yields chunks; a block arrives as a `content_filter` chunk. `collect_stream()` joins them. |
