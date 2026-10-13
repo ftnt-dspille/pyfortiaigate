@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-13
+
 ### Security
 
 - The command line prints text from the server (traffic-log prompts and
