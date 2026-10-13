@@ -167,6 +167,19 @@ def rank_items(data: JSON, end: str = "top") -> list[dict[str, Any]]:
     return list(data.get("bottom" if end == "bottom" else "top") or [])
 
 
+def breakdown_items(data: JSON) -> list[dict[str, Any]]:
+    """The rows of a ``usage_breakdown``/``cost_breakdown`` result. A key, user
+    or workspace splits by ``models``; a model splits by ``consumers`` (usage)
+    or ``spenders`` (cost), each ``{"count", "items"}``."""
+    if not isinstance(data, dict):
+        return []
+    for part in ("models", "consumers", "spenders"):
+        block = data.get(part)
+        if isinstance(block, dict):
+            return list(block.get("items") or [])
+    return []
+
+
 def key_id_from_secret(secret: str) -> str:
     """A virtual key secret embeds its record id: ``faig_<uuid-no-dashes>_...``."""
     bare = secret.split("_")[1]
@@ -731,8 +744,9 @@ class FortiAIGate:
         description: str = "",
         response_scan_mode: str = "post_stream",
     ) -> JSON:
-        """Replace a workspace policy. An active policy's edit goes back through
-        review (``hasPendingChange``) before it takes effect."""
+        """Replace a workspace policy. Made by an org admin, an edit to an ACTIVE
+        policy applies at once (verified on 8.0.2); otherwise check
+        ``hasPendingChange`` for an edit held for review."""
         return self.put(
             f"/api/v1/workspaces/{_q(ws_id)}/policies/{_q(pid)}",
             _policy_body(
@@ -955,7 +969,10 @@ class FortiAIGate:
         to: Day | None = None,
         workspace_id: str | None = None,
     ) -> JSON:
-        """One ranked item (a key, user, workspace or model id) broken down by model."""
+        """One ranked item broken down: a key, user or workspace by model, a
+        model by who used it. Read the rows with ``breakdown_items()``.
+        Rankings still list deleted keys (``deleted: true``); their breakdown
+        is a 404."""
         return self._report(
             "usage", "breakdown", frm, to, workspace_id, by=_one_of("by", by, RANK_BY), id=item_id
         )

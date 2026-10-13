@@ -22,6 +22,12 @@ requests and tokens, `cost_*` calls report spend. Use `rank_items()` to read
 ranking rows: the API answers `items`, `top`/`bottom` lists (`end="both"`), or
 only `meta` when nothing was used in the window.
 
+Drill into one ranked row with `usage_breakdown(by, id)` / `cost_breakdown(by, id)`
+and read it with `breakdown_items()`: a key, user or workspace splits by model,
+while a model splits by who used it (the API names that list `consumers` for
+usage and `spenders` for cost). Rankings still list deleted keys
+(`deleted: true`), and their breakdown is a 404.
+
 Usage and cost figures are aggregated, so a request can take a little while to
 appear in them. The traffic log is immediate.
 

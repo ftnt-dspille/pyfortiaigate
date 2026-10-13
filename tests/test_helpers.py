@@ -203,3 +203,20 @@ def test_rank_items(data: Any, end: str, want: Any) -> None:
     from pyfortiaigate import rank_items
 
     assert rank_items(data, end) == want
+
+
+@pytest.mark.parametrize(
+    ("data", "want"),
+    [
+        ({"total": {}, "models": {"count": 1, "items": [{"name": "m"}]}}, [{"name": "m"}]),
+        ({"total": {}, "consumers": {"count": 1, "items": [{"name": "u"}]}}, [{"name": "u"}]),
+        ({"total": {}, "spenders": {"count": 1, "items": [{"name": "k"}]}}, [{"name": "k"}]),
+        ({"total": {}, "models": {"count": 0}}, []),
+        ({"total": {}}, []),
+        ([], []),
+    ],
+)
+def test_breakdown_items(data: Any, want: Any) -> None:
+    from pyfortiaigate import breakdown_items
+
+    assert breakdown_items(data) == want

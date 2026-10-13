@@ -78,7 +78,7 @@ the decoded JSON response.
 | `policy_by_name(ws_id, name)` | as `policies` | |
 | `create_policy(ws_id, name, input_guardrail_ids, output_guardrail_ids, provider_ids=, description=, response_scan_mode=)` | `POST /api/v1/workspaces/{ws}/policies` | `provider_ids` grants all of those providers' models; some builds require at least one. |
 
-| `update_policy(ws_id, pid, name, input_guardrail_ids, output_guardrail_ids, provider_ids=, description=, response_scan_mode=)` | `PUT /api/v1/workspaces/{ws}/policies/{id}` | An active policy's edit goes back through review. |
+| `update_policy(ws_id, pid, name, input_guardrail_ids, output_guardrail_ids, provider_ids=, description=, response_scan_mode=)` | `PUT /api/v1/workspaces/{ws}/policies/{id}` | By an org admin, an edit to an active policy applies at once. |
 | `delete_policy(pid, ws_id=None)` | `DELETE /api/v1/workspaces/{ws}/policies/{id}` or `DELETE /api/v1/admin/policies/{id}` | |
 
 ## Approval workflow
@@ -131,11 +131,11 @@ only `meta` when nothing was used.
 | `usage_summary(frm, to, workspace_id=)` | `GET .../usage/summary` | Requests, tokens, previous window, key/user adoption. |
 | `usage_trend(frm, to, interval, workspace_id=)` | `GET .../usage/trend` | `points: [{at, requests, tokens}]`. |
 | `usage_rankings(frm, to, by, limit, end=, order_by=, interval=, workspace_id=)` | `GET .../usage/rankings` | `order_by`: tokens \| requests. |
-| `usage_breakdown(by, item_id, frm, to, workspace_id=)` | `GET .../usage/breakdown` | One ranked item, by model. |
+| `usage_breakdown(by, item_id, frm, to, workspace_id=)` | `GET .../usage/breakdown` | A key/user/workspace by model; a model by who used it. Rows: `breakdown_items()`. 404 for a deleted key. |
 | `cost_summary(frm, to, workspace_id=)` | `GET .../cost/summary` | `totals.chargebackSpend`, volume, unit costs. |
 | `cost_trend(frm, to, interval, workspace_id=)` | `GET .../cost/trend` | |
 | `cost_rankings(frm, to, by, limit, end=, order_by=, interval=, workspace_id=)` | `GET .../cost/rankings` | `order_by`: providerSpend \| chargebackSpend \| per1kTokens \| perRequest. |
-| `cost_breakdown(by, item_id, frm, to, workspace_id=)` | `GET .../cost/breakdown` | |
+| `cost_breakdown(by, item_id, frm, to, workspace_id=)` | `GET .../cost/breakdown` | As `usage_breakdown`, with spend. Rows: `breakdown_items()`. |
 | `analytics(frm, to, limit, workspace_id=)` | `GET /api/v1/admin/analytics` or `.../workspaces/{ws}/analytics` | Guardrail violations, severity, trend, scanner latency. |
 
 ## Traffic & ICAP logs

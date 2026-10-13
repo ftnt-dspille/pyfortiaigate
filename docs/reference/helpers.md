@@ -24,6 +24,8 @@
 
 ::: pyfortiaigate.rank_items
 
+::: pyfortiaigate.breakdown_items
+
 ::: pyfortiaigate.blocked
 
 ::: pyfortiaigate.secret_from_response

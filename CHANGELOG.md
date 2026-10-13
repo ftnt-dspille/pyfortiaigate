@@ -12,8 +12,8 @@ All notable changes to this project are documented here. The format follows
 
 - Usage, cost and analytics reports, org-wide or per workspace:
   `usage_summary/trend/rankings/breakdown`, `cost_summary/trend/rankings/breakdown`,
-  `analytics`; `rank_items` reads ranking rows. Allowed values are checked
-  before sending.
+  `analytics`; `rank_items` and `breakdown_items` read the rows whatever shape
+  the API answers in. Allowed values are checked before sending.
 - Traffic logs: `traffic_logs()` iterator over the API cursor, `traffic_logs_page`,
   `traffic_log(uuid)` (cost, prompt, verdict, detector) and filter options; ICAP
   logs the same way. Filters are validated, since the API silently ignores

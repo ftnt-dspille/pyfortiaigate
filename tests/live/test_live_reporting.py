@@ -8,7 +8,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from pyfortiaigate import FaigError, FortiAIGate, rank_items
+from pyfortiaigate import FaigError, FortiAIGate, breakdown_items, rank_items
 
 pytestmark = [
     pytest.mark.live,
@@ -49,12 +49,29 @@ def test_usage_and_cost_reports(live: FortiAIGate, ws: str, scope: str) -> None:
     assert {"summary", "detectors", "violations"} <= live.analytics(limit=3, workspace_id=w).keys()
 
 
-def test_breakdown_of_the_top_key(live: FortiAIGate) -> None:
-    top = rank_items(live.usage_rankings(by="key", limit=1))
+@pytest.mark.parametrize("by", ["key", "user", "model"])
+@pytest.mark.parametrize("scope", ["org", "workspace"])
+def test_breakdown_of_the_top_item(live: FortiAIGate, ws: str, scope: str, by: str) -> None:
+    w = ws if scope == "workspace" else None
+    # Rankings keep deleted keys (deleted: true); their breakdown is a 404.
+    top = [
+        r
+        for r in rank_items(live.usage_rankings(by=by, limit=10, workspace_id=w))
+        if not r.get("deleted")
+    ]
     if not top:
-        pytest.skip("no key usage in the window")
-    assert {"models", "total"} <= live.usage_breakdown("key", top[0]["id"]).keys()
-    assert isinstance(live.cost_breakdown("key", top[0]["id"]), dict)
+        pytest.skip(f"no live {by} with usage in the {scope} window")
+    # A key, user or workspace splits by model; a model by who used it.
+    usage = live.usage_breakdown(by, top[0]["id"], workspace_id=w)
+    assert {"tokens", "requests"} <= usage["total"].keys()
+    rows = breakdown_items(usage)
+    assert rows
+    assert {"name", "tokens", "requests"} <= rows[0].keys()
+    cost = live.cost_breakdown(by, top[0]["id"], workspace_id=w)
+    assert "amount" in cost["total"]["chargebackSpend"]
+    spend = breakdown_items(cost)
+    assert spend
+    assert {"name", "chargebackSpend"} <= spend[0].keys()
 
 
 def test_traffic_logs_page_and_detail(live: FortiAIGate) -> None:
@@ -116,3 +133,51 @@ def test_model_and_permission_lookups(live: FortiAIGate, ws: str) -> None:
     assert isinstance(live.attachable_policies(ws), list)
     assert isinstance(live.model_groups(ws), list)
     assert "allowedModels" in live.workspace(ws)
+
+
+def test_custom_time_window(live: FortiAIGate) -> None:
+    import datetime as dt
+
+    rows = list(live.traffic_logs(range="all", max_items=1))
+    if not rows:
+        pytest.skip("no traffic logged")
+    t = int(rows[0]["timeStamp"])
+    around = live.traffic_logs_page(start=t - 1000, end=t + 1000, limit=50)
+    assert rows[0]["uuid"] in {r["uuid"] for r in around["items"]}
+    assert all(t - 1000 <= int(r["timeStamp"]) <= t + 1000 for r in around["items"])
+    as_datetime = live.traffic_logs_page(
+        start=dt.datetime.fromtimestamp((t - 1000) / 1000, dt.timezone.utc),
+        end=dt.datetime.fromtimestamp((t + 1000) / 1000, dt.timezone.utc),
+    )
+    assert as_datetime["total"] == around["total"]
+    future = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=1)
+    empty = live.traffic_logs_page(start=future, end=future + dt.timedelta(hours=1))
+    assert empty["total"] == 0
+
+
+def test_contains_and_does_not_contain(live: FortiAIGate) -> None:
+    models = live.traffic_log_filter_options(range="all").get("model") or []
+    everything = live.traffic_logs_page(range="all", limit=1)["total"]
+    # A substring some logged models have and some do not.
+    sub = next(
+        (m[-6:] for m in models if 0 < sum(m[-6:] in x for x in models) < len(models)),
+        None,
+    )
+    if not sub:
+        pytest.skip("need models that differ in their last six characters")
+    has = live.traffic_logs_page(
+        range="all", limit=50, filters={"model": {"operator": "contains", "value": sub}}
+    )
+    lacks = live.traffic_logs_page(
+        range="all", limit=50, filters={"model": {"operator": "does not contain", "value": sub}}
+    )
+    assert 0 < has["total"] < everything
+    assert has["total"] + lacks["total"] == everything
+    assert all(sub in r["model"] for r in has["items"])
+    # Rows with no model (refused before routing) count as "does not contain".
+    assert all(sub not in (r["model"] or "") for r in lacks["items"])
+
+
+def test_workspace_traffic_filter_options(live: FortiAIGate, ws: str) -> None:
+    opts = live.traffic_log_filter_options(range="all", workspace_id=ws)
+    assert {"model", "verdict", "virtualKey"} <= opts.keys()

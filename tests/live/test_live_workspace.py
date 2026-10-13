@@ -86,6 +86,13 @@ def test_playground_scans_an_unsaved_regex_body(faig: FortiAIGate, ws: str) -> N
     assert faig.detector_by_name(ws, f"{RUN}-pg") is None, "the Playground saved a detector"
 
 
+def test_playground_as_org_admin(faig: FortiAIGate) -> None:
+    body = regex_detector_body(f"{RUN}-pg-admin", [("code", r"ZEBRA-\d{4}", "block")])
+    hit = faig.playground("the code is ZEBRA-1234", body)
+    miss = faig.playground("nothing here", body)
+    assert hit != miss, (hit, miss)
+
+
 def test_playground_natural_language_detector(faig: FortiAIGate, ws: str) -> None:
     body = ai_detector_body(f"{RUN}-nl", DARK_SIDE)
     hit = faig.playground("Join the dark side, my apprentice, and rule with the Sith.", body, ws)
@@ -125,15 +132,47 @@ def test_guardrail_and_policy_then_update_policy(
     p = faig.create_policy(ws, f"{RUN}-pol", [g["id"]], [g["id"]], provider_ids=["openai"])
     approve_new(faig, ws, "policies", p)
     state["pol"], state["gr"] = p["id"], g["id"]
+    state["det"] = det.get("uuid") or det["id"]
     faig.update_policy(
         ws, p["id"], f"{RUN}-pol", [g["id"]], [], provider_ids=["openai"], description="edited"
     )
     live = faig.policy_by_name(ws, f"{RUN}-pol")
     assert live
-    # An active policy's edit is either applied or held for review.
-    assert live.get("description") == "edited" or live.get("hasPendingChange")
-    if live.get("hasPendingChange"):
-        approve_new(faig, ws, "policies", {**live, "status": "pending"})
+    # As org admin, an edit to an ACTIVE policy applies at once: no review.
+    assert live["status"] == "active"
+    assert live["description"] == "edited"
+    assert live["outputGuardrailIds"] == []
+    assert not live.get("hasPendingChange")
+    faig.update_policy(ws, p["id"], f"{RUN}-pol", [g["id"]], [g["id"]], provider_ids=["openai"])
+
+
+@pytest.mark.parametrize("kind", ["guardrails", "policies"])
+def test_withdraw_a_pending_submission(
+    faig: FortiAIGate, ws: str, state: dict[str, Any], kind: str
+) -> None:
+    need(state, "det", "gr")
+    if kind == "guardrails":
+        obj = faig.create_guardrail(ws, f"{RUN}-wd-gr", [state["det"]])
+        find = lambda: faig.guardrail_by_name(ws, f"{RUN}-wd-gr")  # noqa: E731
+    else:
+        obj = faig.create_policy(
+            ws, f"{RUN}-wd-pol", [state["gr"]], [state["gr"]], provider_ids=["openai"]
+        )
+        find = lambda: faig.policy_by_name(ws, f"{RUN}-wd-pol")  # noqa: E731
+    faig.submit(ws, kind, obj["id"])
+    assert find()["status"] == "pending"  # type: ignore[index]
+    queued = {str(q.get("id")) for q in faig.review_queue()}
+    assert obj["id"] in queued
+    faig.withdraw(ws, kind, obj["id"])
+    after = find()
+    assert after
+    assert after["status"] == "draft"
+    assert obj["id"] not in {str(q.get("id")) for q in faig.review_queue()}
+    if kind == "guardrails":
+        faig.delete_guardrail(obj["id"], ws)
+    else:
+        faig.delete_policy(obj["id"], ws)
+    assert find() is None
 
 
 def _model(faig: FortiAIGate, ws: str) -> str:
