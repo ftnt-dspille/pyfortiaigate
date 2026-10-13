@@ -68,6 +68,38 @@ The logged-in user.
 | `spend` | float |  |
 | `orgCycleSpend` | float |  |
 
+### Invitation
+
+A pending invitation. FortiAIGate sends no email: hand the invitee the
+`invitePath` link, or accept it with `accept_invite`.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | str | What `accept_invite` and `revoke_invitation` take. |
+| `orgRole` | str |  |
+| `addresses` | list\[[InviteAddress](#inviteaddress)\] |  |
+| `invitedBy` | str | The inviting user's id. |
+| `invitedByName` | str |  |
+| `invitePath` | str | `/invite/<id>` on the console. |
+| `createdAt` | str |  |
+| `expiresAt` | str | Seven days after `createdAt`. |
+
+### InviteAddress
+
+| Field | Type | Meaning |
+|---|---|---|
+| `email` | str |  |
+| `status` | str | `pending` until accepted. |
+
+### AcceptedInvite
+
+| Field | Type | Meaning |
+|---|---|---|
+| `createdAccount` | bool |  |
+| `email` | str |  |
+| `role` | str |  |
+| `csrfToken` | str | For the new user's own browser session; the client does not use it. |
+
 ### Workspace
 
 A workspace as the org-admin list gives it.
@@ -91,6 +123,10 @@ A workspace as the org-admin list gives it.
 | `createdBy` | str |  |
 | `grantedModelCount` | int |  |
 | `credentialGaps` | list\[Any\] |  |
+| `description` | str | `create_workspace` only, as are the fields below. |
+| `policyIds` | list\[str\] |  |
+| `defaultKeyBindings` | list\[Any\] |  |
+| `updatedAt` | str |  |
 
 ### MyWorkspace
 

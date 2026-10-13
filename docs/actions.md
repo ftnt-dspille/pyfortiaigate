@@ -35,10 +35,13 @@ two keys with one name raise `ValueError`; a key can also be given by its
 | [`users()`](reference/client.md#pyfortiaigate.FortiAIGate.users) | `GET /api/v1/admin/users` | list\[[User](reference/types.md#user)\] |  |
 | [`user(user_id)`](reference/client.md#pyfortiaigate.FortiAIGate.user) | `GET /api/v1/admin/users/{id}` | [User](reference/types.md#user) |  |
 | [`user_by_email(email)`](reference/client.md#pyfortiaigate.FortiAIGate.user_by_email) | `GET /api/v1/admin/users` | [User](reference/types.md#user) \| None | Case-insensitive match; `None` if absent. |
-| [`invite(email, role)`](reference/client.md#pyfortiaigate.FortiAIGate.invite) | `POST /api/v1/admin/user-invitations` | JSON (untyped) | Users exist only via invitation; no email is sent. |
-| [`accept_invite(invitation_id, email, password, display_name)`](reference/client.md#pyfortiaigate.FortiAIGate.accept_invite) | `POST /api/v1/invitations/{id}/accept` | JSON (untyped) | Unauthenticated; sets the password. |
-| [`delete_user(user_id)`](reference/client.md#pyfortiaigate.FortiAIGate.delete_user) | `DELETE /api/v1/admin/users/{id}` | JSON (untyped) |  |
-| [`make_workspace_admin(user_id, ws_id)`](reference/client.md#pyfortiaigate.FortiAIGate.make_workspace_admin) | `GET` + `PUT /api/v1/admin/users/{id}` | JSON (untyped) | Keeps the user's other memberships. |
+| [`invite(email, role)`](reference/client.md#pyfortiaigate.FortiAIGate.invite) | `POST /api/v1/admin/user-invitations` | [Invitation](reference/types.md#invitation) | Users exist only via invitation; no email is sent. A second invite while one is pending is refused (422). |
+| [`invitations()`](reference/client.md#pyfortiaigate.FortiAIGate.invitations) | `GET /api/v1/admin/user-invitations` | list\[[Invitation](reference/types.md#invitation)\] | Pending invitations. |
+| [`invitation_by_email(email)`](reference/client.md#pyfortiaigate.FortiAIGate.invitation_by_email) | `GET /api/v1/admin/user-invitations` | [Invitation](reference/types.md#invitation) \| None | Case-insensitive; `None` if there is none. |
+| [`revoke_invitation(invitation_id)`](reference/client.md#pyfortiaigate.FortiAIGate.revoke_invitation) | `DELETE /api/v1/admin/user-invitations/{id}` | None | Needed before re-inviting an address with one pending. |
+| [`accept_invite(invitation_id, email, password, display_name)`](reference/client.md#pyfortiaigate.FortiAIGate.accept_invite) | `POST /api/v1/invitations/{id}/accept` | [AcceptedInvite](reference/types.md#acceptedinvite) | Unauthenticated; sets the password. |
+| [`delete_user(user_id)`](reference/client.md#pyfortiaigate.FortiAIGate.delete_user) | `DELETE /api/v1/admin/users/{id}` | None |  |
+| [`make_workspace_admin(user_id, ws_id)`](reference/client.md#pyfortiaigate.FortiAIGate.make_workspace_admin) | `GET` + `PUT /api/v1/admin/users/{id}` | [User](reference/types.md#user) | Keeps the user's other memberships. |
 
 ## Workspaces
 
@@ -53,8 +56,8 @@ Names are resolved once and cached; an unknown name raises `LookupError`.
 | [`workspaces()`](reference/client.md#pyfortiaigate.FortiAIGate.workspaces) | `GET /api/v1/admin/workspaces` | list\[[Workspace](reference/types.md#workspace)\] | Every workspace (org admin). |
 | [`my_workspaces()`](reference/client.md#pyfortiaigate.FortiAIGate.my_workspaces) | `GET /api/v1/me/workspaces` | list\[[MyWorkspace](reference/types.md#myworkspace)\] | Workspaces the caller belongs to. |
 | [`workspace_by_name(name)`](reference/client.md#pyfortiaigate.FortiAIGate.workspace_by_name) | `GET /api/v1/admin/workspaces` | [Workspace](reference/types.md#workspace) \| None |  |
-| [`create_workspace(name, admin_ids, provider_ids, description)`](reference/client.md#pyfortiaigate.FortiAIGate.create_workspace) | `POST /api/v1/admin/workspaces` | JSON (untyped) | Admins must be existing users. |
-| [`delete_workspace(ws_id)`](reference/client.md#pyfortiaigate.FortiAIGate.delete_workspace) | `DELETE /api/v1/admin/workspaces/{ws}` | JSON (untyped) |  |
+| [`create_workspace(name, admin_ids, provider_ids, description)`](reference/client.md#pyfortiaigate.FortiAIGate.create_workspace) | `POST /api/v1/admin/workspaces` | [Workspace](reference/types.md#workspace) | Admins must be existing users. |
+| [`delete_workspace(ws_id)`](reference/client.md#pyfortiaigate.FortiAIGate.delete_workspace) | `DELETE /api/v1/admin/workspaces/{ws}` | None |  |
 | [`workspace(ws_id)`](reference/client.md#pyfortiaigate.FortiAIGate.workspace) | `GET /api/v1/workspaces/{ws}` | [WorkspaceSettings](reference/types.md#workspacesettings) | Settings: `allowedModels`, `allowedPolicies`, budgets, member defaults. |
 | [`workspace_members(ws_id)`](reference/client.md#pyfortiaigate.FortiAIGate.workspace_members) | `GET /api/v1/workspaces/{ws}/members` | [WorkspaceMembers](reference/types.md#workspacemembers) |  |
 | [`workspace_budget(ws_id)`](reference/client.md#pyfortiaigate.FortiAIGate.workspace_budget) | `GET /api/v1/workspaces/{ws}/budget` | [WorkspaceBudget](reference/types.md#workspacebudget) |  |

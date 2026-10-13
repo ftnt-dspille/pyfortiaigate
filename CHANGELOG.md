@@ -16,11 +16,21 @@ All notable changes to this project are documented here. The format follows
   Actions page links each method to the type it returns.
 - A live conformance test fails when the appliance returns a field the
   declared type lacks, so the documented fields stay complete.
+- `invitations()`, `invitation_by_email()` and `revoke_invitation()`.
+- Org-level calls verified live and typed: `invite` (`Invitation`),
+  `accept_invite` (`AcceptedInvite`), `make_workspace_admin` (`User`),
+  `create_workspace` (`Workspace`); an opt-in live test
+  (`FAIG_ORG_WRITES`, `FAIG_TEST_INVITEE`) runs the whole invite, account and
+  workspace lifecycle and cleans up.
 
 ### Changed
 
-- `delete_detector`, `delete_guardrail`, `delete_policy`, `delete_virtual_key`
-  and `withdraw` return None (the appliance answers with an empty body).
+- `delete_detector`, `delete_guardrail`, `delete_policy`, `delete_virtual_key`,
+  `delete_user`, `delete_workspace` and `withdraw` return None (the appliance
+  answers with an empty body); `accept_invite` returns `{}` rather than None
+  for an empty body.
+- `create_workspace` and `delete_workspace` keep the workspace-name cache
+  current.
 - `my_workspaces()` is annotated as `list[MyWorkspace]` (its real shape),
   not `list[Workspace]`.
 

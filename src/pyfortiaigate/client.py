@@ -421,6 +421,43 @@ class Workspace(TypedDict, total=False):
     createdBy: str
     grantedModelCount: int
     credentialGaps: list[Any]
+    description: str
+    """``create_workspace`` only, as are the fields below."""
+    policyIds: list[str]
+    defaultKeyBindings: list[Any]
+    updatedAt: str
+
+
+class InviteAddress(TypedDict, total=False):
+    email: str
+    status: str
+    """``pending`` until accepted."""
+
+
+class Invitation(TypedDict, total=False):
+    """A pending invitation. FortiAIGate sends no email: hand the invitee the
+    ``invitePath`` link, or accept it with ``accept_invite``."""
+
+    id: str
+    """What ``accept_invite`` and ``revoke_invitation`` take."""
+    orgRole: str
+    addresses: list[InviteAddress]
+    invitedBy: str
+    """The inviting user's id."""
+    invitedByName: str
+    invitePath: str
+    """``/invite/<id>`` on the console."""
+    createdAt: str
+    expiresAt: str
+    """Seven days after ``createdAt``."""
+
+
+class AcceptedInvite(TypedDict, total=False):
+    createdAccount: bool
+    email: str
+    role: str
+    csrfToken: str
+    """For the new user's own browser session; the client does not use it."""
 
 
 class MyWorkspace(TypedDict, total=False):
@@ -1591,17 +1628,39 @@ class FortiAIGate:
         e = email.lower()
         return next((u for u in self.users() if str(u.get("email", "")).lower() == e), None)
 
-    def invite(self, email: str, role: str = ROLE_MEMBER) -> JSON:
-        """Invite a user (no email is sent). Not verified live (an org-level
-        write), so the response is untyped: the API's JSON as-is."""
-        return self.post("/api/v1/admin/user-invitations", {"emails": [email], "orgRole": role})
+    def invite(self, email: str, role: str = ROLE_MEMBER) -> Invitation:
+        """Invite a user. No email is sent: accept it with ``accept_invite``
+        or hand over ``invitePath``. A second invite while one is pending is
+        refused (``ValidationError``); revoke the first."""
+        return cast(
+            Invitation,
+            self.post("/api/v1/admin/user-invitations", {"emails": [email], "orgRole": role}),
+        )
+
+    def invitations(self) -> list[Invitation]:
+        """Pending invitations."""
+        return cast("list[Invitation]", self._list("/api/v1/admin/user-invitations"))
+
+    def invitation_by_email(self, email: str) -> Invitation | None:
+        """The pending invitation for an address, if any (case-insensitive)."""
+        e = email.lower()
+        return next(
+            (
+                i
+                for i in self.invitations()
+                if any(str(a.get("email", "")).lower() == e for a in i.get("addresses") or [])
+            ),
+            None,
+        )
+
+    def revoke_invitation(self, invitation_id: str) -> None:
+        self.delete(f"/api/v1/admin/user-invitations/{_q(invitation_id)}")
 
     def accept_invite(
         self, invitation_id: str, email: str, password: str, display_name: str = ""
-    ) -> JSON:
-        """Unauthenticated in the product, so sent with no session cookie.
-        Not verified live (an org-level write), so the
-        response is untyped: the API's JSON as-is."""
+    ) -> AcceptedInvite:
+        """Accept an invitation, creating the account with this password.
+        Unauthenticated in the product, so sent with no session cookie."""
         body: dict[str, Any] = {"email": email, "password": password}
         if display_name:
             body["displayName"] = display_name
@@ -1615,17 +1674,14 @@ class FortiAIGate:
             anon._opener.close()
         if st >= 400:
             raise error_for("POST", path, st, txt)
-        return json.loads(txt) if txt.strip() else None
+        return cast(AcceptedInvite, json.loads(txt) if txt.strip() else {})
 
-    def delete_user(self, user_id: str) -> JSON:
-        """Not verified live (an org-level write), so the
-        response is untyped: the API's JSON as-is."""
-        return self.delete(f"/api/v1/admin/users/{_q(user_id)}")
+    def delete_user(self, user_id: str) -> None:
+        self.delete(f"/api/v1/admin/users/{_q(user_id)}")
 
-    def make_workspace_admin(self, user_id: str, ws_id: WsRef) -> JSON:
+    def make_workspace_admin(self, user_id: str, ws_id: WsRef) -> User:
         """The user update REPLACES the user's workspace list, so the existing
-        memberships are kept and this one added. Not verified live (an org-level write), so the
-        response is untyped: the API's JSON as-is."""
+        memberships are kept and this one added. Returns the updated user."""
         ws_id = self.resolve_workspace(ws_id)
         u = self.user(user_id)
         keep = [
@@ -1635,7 +1691,7 @@ class FortiAIGate:
         ]
         # A GET's `orgRole` is the EFFECTIVE role (workspace_admin once they admin
         # a workspace); `orgRoleStored` is the real org role -- send that back.
-        return self.put(
+        updated = self.put(
             f"/api/v1/admin/users/{_q(user_id)}",
             {
                 "email": u["email"],
@@ -1644,6 +1700,7 @@ class FortiAIGate:
                 "workspaces": [*keep, {"workspaceId": ws_id, "role": "workspace_admin"}],
             },
         )
+        return cast(User, updated)
 
     # -- workspaces ----
     def resolve_workspace(self, ws: WsRef) -> str:
@@ -1700,10 +1757,9 @@ class FortiAIGate:
         admin_ids: Iterable[str],
         provider_ids: Iterable[str],
         description: str = "",
-    ) -> JSON:
-        """``admin_ids`` must be EXISTING user ids (a pending invitation is not one).
-        Not verified live (an org-level write), so the response is untyped: the API's JSON as-is."""
-        return self.post(
+    ) -> Workspace:
+        """``admin_ids`` must be EXISTING user ids (a pending invitation is not one)."""
+        created = self.post(
             "/api/v1/admin/workspaces",
             {
                 "workspaceName": name,
@@ -1716,11 +1772,14 @@ class FortiAIGate:
                 ],
             },
         )
+        if isinstance(created, dict) and created.get("id"):
+            self._ws_ids[name] = str(created["id"])
+        return cast(Workspace, created)
 
-    def delete_workspace(self, ws_id: WsRef) -> JSON:
-        """Not verified live (an org-level write), so the
-        response is untyped: the API's JSON as-is."""
-        return self.delete(f"/api/v1/admin/workspaces/{self._ws(ws_id)}")
+    def delete_workspace(self, ws_id: WsRef) -> None:
+        wid = self.resolve_workspace(ws_id)
+        self.delete(f"/api/v1/admin/workspaces/{_q(wid)}")
+        self._ws_ids = {n: i for n, i in self._ws_ids.items() if i != wid}
 
     def workspace_members(self, ws_id: WsRef) -> WorkspaceMembers:
         return cast(WorkspaceMembers, self.get(f"/api/v1/workspaces/{self._ws(ws_id)}/members"))

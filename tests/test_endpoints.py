@@ -325,4 +325,30 @@ def test_accept_invite_error(faig: FortiAIGate, fake: FakeFaig) -> None:
     with pytest.raises(FaigError, match="expired"):
         faig.accept_invite("i1", "a@example.com", "pw")
     fake.answer("POST", "/api/v1/invitations/i2/accept", (200, None))
-    assert faig.accept_invite("i2", "a@example.com", "pw") is None
+    assert faig.accept_invite("i2", "a@example.com", "pw") == {}
+
+
+INVITE = {
+    "id": "i1",
+    "orgRole": "org_member",
+    "addresses": [{"email": "New@Example.com", "status": "pending"}],
+}
+
+
+def test_invitations_lookup_and_revoke(faig: FortiAIGate, fake: FakeFaig) -> None:
+    fake.answer("GET", "/api/v1/admin/user-invitations", (200, {"items": [INVITE], "total": 1}))
+    assert faig.invitations() == [INVITE]
+    assert faig.invitation_by_email("new@example.com") == INVITE
+    assert faig.invitation_by_email("other@example.com") is None
+    assert faig.revoke_invitation("i1") is None
+    assert fake.calls("DELETE", "/api/v1/admin/user-invitations/i1")
+
+
+def test_create_and_delete_workspace_keep_the_name_cache(faig: FortiAIGate, fake: FakeFaig) -> None:
+    fake.answer("POST", "/api/v1/admin/workspaces", (201, {"id": "w7", "workspaceName": "lab"}))
+    assert faig.create_workspace("lab", ["u1"], ["openai"])["id"] == "w7"
+    assert faig.resolve_workspace("lab") == "w7"  # cached on create, no lookup
+    assert faig.delete_workspace("lab") is None
+    assert fake.calls("DELETE", "/api/v1/admin/workspaces/w7")
+    assert "lab" not in faig._ws_ids
+    assert fake.calls("GET", "/api/v1/admin/workspaces") == []
