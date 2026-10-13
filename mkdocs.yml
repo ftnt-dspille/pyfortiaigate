@@ -5,6 +5,10 @@ repo_url: https://github.com/ftnt-dspille/pyfortiaigate
 repo_name: ftnt-dspille/pyfortiaigate
 edit_uri: edit/main/docs/
 
+validation:
+  links:
+    anchors: warn
+
 theme:
   name: material
   features:
