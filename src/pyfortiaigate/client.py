@@ -128,11 +128,281 @@ AUDIT_FILTERS = {
 }
 
 
-# -- record types ------------------------------------------------------------------
-# The fields 8.0.2 returns, for editor completion and type checking. They are
-# ``total=False``: a field the appliance leaves out is simply absent. Records
-# are plain dicts at runtime.
+# -- response types ------------------------------------------------------------------
+# What each call returns, as recorded from FortiAIGate 8.0.2. They are
+# ``total=False`` TypedDicts: a field the appliance leaves out is simply absent,
+# and at runtime every record is a plain dict. Times are ISO-8601 strings
+# unless a field says epoch milliseconds; money is in the org's currency.
+
+
+# ---- small shared shapes
+class IdName(TypedDict, total=False):
+    id: str
+    name: str
+
+
+class DisplayRef(TypedDict, total=False):
+    """A reference to another object, as analytics and rankings give it."""
+
+    id: str
+    displayName: str
+
+
+class ScopeRef(TypedDict, total=False):
+    kind: str
+    """``workspace`` (the only kind seen on 8.0.2)."""
+    id: str
+    displayName: str
+
+
+class UserRef(TypedDict, total=False):
+    id: str
+    email: str
+    fullName: str | None
+
+
+# ``from`` is a Python keyword, so this one uses the functional form.
+DateWindow = TypedDict("DateWindow", {"from": str, "to": str}, total=False)
+DateWindow.__doc__ = """A report window: ``{"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"}``."""
+
+
+class Volume(TypedDict, total=False):
+    requests: int
+    tokens: int
+
+
+class Spend(TypedDict, total=False):
+    amount: float
+    """Total spend in the window."""
+    perRequest: float
+    per1kTokens: float | None
+
+
+class Span(TypedDict, total=False):
+    """A matched character range in scanned text."""
+
+    start: int
+    end: int
+
+
+# ---- models and providers
+class ModelGrant(TypedDict, total=False):
+    """One model inside a provider grant."""
+
+    uuid: str
+    modelId: str
+    """The provider's model id (``gpt-4o-2024-08-06``)."""
+    publicName: str
+    """The name callers use on the gateway (``openai-gpt-4o-2024-08-06``)."""
+    enabled: bool
+    workspaceEnabled: bool
+    """Workspace ``grantable_providers`` only, as are the fields below."""
+    effectiveEnabled: bool
+    """Usable: enabled for the org AND the workspace."""
+    grantedViaGroups: list[Any]
+    effectiveInputCost: float
+    effectiveOutputCost: float | None
+    effectiveCacheReadCost: float | None
+    effectiveCacheWriteCost: float | None
+    requestFee: float | None
+    healthStatus: str
+    healthSource: str | None
+    lastCheckedAt: str | None
+    healthExpiresAt: str | None
+    lastActivityAt: str | None
+
+
+class ProviderKey(TypedDict, total=False):
+    """An upstream provider credential (its name, never its secret)."""
+
+    id: str
+    name: str
+    description: str | None
+    enabled: bool
+
+
+class ProviderAccess(TypedDict, total=False):
+    """Which of a provider's models (and upstream keys) are granted."""
+
+    providerId: str
+    name: str
+    platform: str
+    allModels: bool
+    allKeys: bool
+    workspaceDefaultKeys: bool
+    blockedModelUuids: list[str]
+    excludedKeyIds: list[str]
+    keys: list[ProviderKey]
+    models: list[ModelGrant]
+
+
+class ModelGroupMember(TypedDict, total=False):
+    model: dict[str, Any]
+    """``{"uuid", "modelId", "providerId", "publicName"}``."""
+    status: str
+    usability: str
+    """Workspace path only: ``usable`` when the workspace can route to it."""
+    priority: int | None
+    weight: int | None
+
+
+class ModelGroup(TypedDict, total=False):
+    """A named set of models with a routing ``strategy`` (``random``, ...)."""
+
+    id: str
+    name: str
+    description: str | None
+    strategy: str
+    members: list[ModelGroupMember]
+    memberCount: int
+    """Workspace path only."""
+    usableMemberCount: int
+    """Workspace path only."""
+    grantedTo: list[dict[str, Any]]
+    """``[{"workspaceId", "workspaceName"}]`` (org path only)."""
+    createdAt: str
+    createdBy: str
+    updatedAt: str
+    updatedBy: str | None
+
+
+class AiProvider(TypedDict, total=False):
+    providerId: str
+    label: str
+    platform: str
+    """``openai``, ``anthropic``, ``custom``, ..."""
+    baseUrl: str
+    description: str | None
+    modelCount: int
+    enabledModelCount: int
+    keyCount: int
+
+
+class Model(TypedDict, total=False):
+    """A model the org knows. Costs are per million tokens."""
+
+    uuid: str
+    publicName: str
+    modelId: str
+    providerId: str
+    platform: str
+    label: str
+    isCustom: bool
+    customizedCost: bool
+    healthStatus: str
+    """``healthy``, ``unhealthy``, ``unknown``."""
+    healthSource: str | None
+    lastCheckedAt: str | None
+    healthExpiresAt: str | None
+    lastActivityAt: str | None
+    baseInputCost: float
+    baseOutputCost: float | None
+    baseCacheReadCost: float | None
+    baseCacheWriteCost: float | None
+    effectiveInputCost: float
+    effectiveOutputCost: float | None
+    effectiveCacheReadCost: float | None
+    effectiveCacheWriteCost: float | None
+    requestFee: float | None
+
+
+class GrantableProvider(TypedDict, total=False):
+    """A provider whose models and keys can be granted."""
+
+    providerId: str
+    name: str
+    platform: str
+    autoSyncNewModels: bool
+    keys: list[ProviderKey]
+    models: list[ModelGrant]
+    defaultKeyIds: list[str]
+    """Workspace path only."""
+    groupReachedModels: list[Any]
+    """Workspace path only."""
+
+
+class DlpLabel(TypedDict, total=False):
+    category: str
+    """The name ``dlp_detector_body`` takes (``Account number``, ...)."""
+    defaultAction: str
+    defaultReplacement: str
+    defaultThreshold: float
+    sample: str
+
+
+class License(TypedDict, total=False):
+    serialNumber: str
+    status: str
+    endDate: str
+    nodeName: str
+
+
+class Licenses(TypedDict, total=False):
+    scanningEnabled: bool
+    licenses: list[License]
+    mapping: list[dict[str, Any]]
+    """``[{"serialNumber", "gpu": {"id", "product"}}]``."""
+
+
+# ---- users and workspaces
+class Me(TypedDict, total=False):
+    """The logged-in user."""
+
+    id: str
+    username: str
+    email: str
+    fullName: str
+    role: str
+    """Org role: ``org_admin``, ``org_member``, ``super_admin``."""
+    orgId: str
+    authType: str
+    avatarUrl: str | None
+    memberships: list[dict[str, Any]]
+    """``[{"workspaceId", "role"}]``."""
+
+
+class UserWorkspace(TypedDict, total=False):
+    workspaceId: str
+    workspaceName: str
+    membershipRole: str
+    """``workspace_admin`` or ``workspace_member``."""
+    budget: float | None
+    spend: float
+    orgCycleSpend: float
+
+
+class User(TypedDict, total=False):
+    id: str
+    email: str
+    fullName: str
+    orgRole: str
+    """The EFFECTIVE role (``workspace_admin`` once they admin a workspace)."""
+    orgRoleStored: str
+    """The org role actually assigned."""
+    authType: str
+    isActive: bool
+    isDefaultAccount: bool
+    canQuickSignIn: bool
+    createdAt: str
+    lastLogin: str | None
+    keyCount: int
+    spend: float
+    orgCycleSpend: float
+    globalCycleSpend: float
+    otherCycleSpend: float
+    budget: float | None
+    budgetCycle: str | None
+    customUserBudget: float | None
+    customUserBudgetCycle: str | None
+    customUserBudgetUncapped: bool
+    workspaces: list[UserWorkspace]
+    keys: list[Any]
+    """``user(id)`` only."""
+
+
 class Workspace(TypedDict, total=False):
+    """A workspace as the org-admin list gives it."""
+
     id: str
     workspaceName: str
     organizationId: str
@@ -144,12 +414,97 @@ class Workspace(TypedDict, total=False):
     rpm: int | None
     memberCount: int
     admins: list[dict[str, Any]]
-    providerAccess: list[dict[str, Any]]
-    modelGroups: list[dict[str, Any]]
+    """``[{"id", "name", "email"}]``."""
+    providerAccess: list[ProviderAccess]
+    modelGroups: list[ModelGroup]
     createdAt: str
     createdBy: str
     grantedModelCount: int
     credentialGaps: list[Any]
+
+
+class MyWorkspace(TypedDict, total=False):
+    """A workspace the caller belongs to."""
+
+    id: str
+    workspaceName: str
+    organization: str
+    membershipRole: str
+    myBudget: float | None
+    myBudgetCycle: str | None
+    myKeyCount: int
+
+
+class WorkspaceSettings(TypedDict, total=False):
+    id: str
+    workspaceName: str
+    allowedModels: list[str]
+    """Public names of the models the workspace may use."""
+    allowedPolicies: list[Any]
+    allowedGuardrails: list[Any]
+    budget: float | None
+    budgetCycle: str
+    defaultMemberBudget: float | None
+    defaultMemberBudgetCycle: str | None
+    defaultMemberRpmLimit: int | None
+    defaultMemberTpmLimit: int | None
+    memberKeyDurationDays: int | None
+    fallbacksEnabled: bool
+    updatedAt: str
+
+
+class WorkspaceMember(TypedDict, total=False):
+    id: str
+    name: str
+    email: str
+    role: str
+    joinedAt: str
+    lastActiveAt: str | None
+    keyCount: int
+    currentSpend: float
+    maxBudgetUncapped: bool
+
+
+class WorkspaceMembers(TypedDict, total=False):
+    items: list[WorkspaceMember]
+    total: int
+
+
+class WorkspaceBudget(TypedDict, total=False):
+    budget: float | None
+    budgetCycle: str
+    spend: float
+
+
+# ---- detectors, guardrails, policies
+class DetectorRule(TypedDict, total=False):
+    """One entry of a detector's flat ``rules`` list, the one the engine
+    evaluates. Which fields are set depends on the detector type."""
+
+    id: str
+    pattern: str
+    """Regex detectors."""
+    description: str
+    """Natural Language detectors: the plain-language condition."""
+    category: str
+    """DLP detectors: the DLP label."""
+    disposition: str
+    """``block``, ``redact``, ``log``, ..."""
+    threshold: float
+    replacement: str
+
+
+class RuleGroup(TypedDict, total=False):
+    """An entry of ``regexRules`` / ``aiRules`` (the editor's grouping), or a
+    built-in detector's rule."""
+
+    id: str
+    name: str
+    description: str
+    enabled: bool
+    conditions: list[DetectorRule]
+    violateIf: list[str]
+    exemptIf: list[str]
 
 
 class _Reviewed(TypedDict, total=False):
@@ -159,7 +514,8 @@ class _Reviewed(TypedDict, total=False):
     description: str
     ownerWorkspaceId: str | None
     scope: str
-    submittedBy: Any
+    """``workspace`` or ``org``."""
+    submittedBy: UserRef | None
     submittedAt: str | None
     rejectionReason: str | None
     createdAt: str
@@ -167,61 +523,154 @@ class _Reviewed(TypedDict, total=False):
     activatedAt: str | None
     contentUpdatedAt: str | None
     hasPendingChange: bool
+    """An edit is waiting for approval; the active version still applies."""
     pendingDeletion: bool
     pendingChangeKind: str | None
 
 
 class Detector(_Reviewed, total=False):
     uuid: str
+    detectorType: str
+    """``regex``, ``managed`` (DLP) or ``ai`` (Natural Language)."""
+    approvalStatus: str
+    """``draft``, ``pending``, ``active`` or ``rejected``."""
     inputGuards: list[str]
     outputGuards: list[str]
     ruleCount: int
     sensitivity: Any
     engine: str
-    detectorType: str
+    """``CPU`` or ``GPU``."""
     managedEngine: str | None
     action: str | None
-    rules: list[dict[str, Any]]
-    regexRules: list[dict[str, Any]] | None
-    aiRules: list[dict[str, Any]] | None
-    approvalStatus: str
+    rules: list[DetectorRule]
+    regexRules: list[RuleGroup] | None
+    aiRules: list[RuleGroup] | None
+
+
+class BuiltinDetector(TypedDict, total=False):
+    id: str
+    """A slug (``owasp-llm-top-10-2025``), usable wherever a detector id is."""
+    name: str
+    description: str
+    category: str
+    group: str
+    engine: str
+    action: str
+    rules: list[RuleGroup]
 
 
 class Guardrail(_Reviewed, total=False):
     id: str
-    detectorIds: list[str]
     status: str
-    usedByPolicyCount: int
+    """``draft``, ``pending``, ``active`` or ``rejected``."""
+    detectorIds: list[str]
     denySuspiciousCharacters: bool
+    usedByPolicyCount: int
 
 
 class Policy(_Reviewed, total=False):
     id: str
+    status: str
+    """``draft``, ``pending``, ``active`` or ``rejected``."""
     inputGuardrailIds: list[str]
     outputGuardrailIds: list[str]
     responseScanMode: str
-    providerAccess: list[dict[str, Any]]
-    status: str
+    """``post_stream`` or ``in_stream``."""
+    providerAccess: list[ProviderAccess]
     assignedWorkspaceIds: list[str]
     applyToOrganization: bool
+
+
+class ReviewItem(TypedDict, total=False):
+    """An object waiting in the org admin's review queue."""
+
+    id: str
+    name: str
+    type: str
+    """``detector``, ``guardrail`` or ``policy`` (see ``QUEUE_KIND``)."""
+    changeKind: str
+    """``create``, ``update`` or ``delete``."""
+    ownerWorkspaceId: str
+    submittedBy: UserRef
+    submittedAt: str
+    updatedAt: str
+
+
+class DetectorTest(TypedDict, total=False):
+    """A detector scan result."""
+
+    matched: bool
+    finalDisposition: str | None
+    """What would happen: ``block``, ``redact``, ... or None."""
+    score: float
+    details: str
+    """Human-readable, e.g. ``Matched rules: ssn (block)``."""
+    spans: list[Span]
+    rewritten: str | None
+    """The redacted text, for a redacting detector."""
+    latencyMs: int
+    scannedChars: int
+    truncated: bool
+
+
+class GuardrailTestResult(TypedDict, total=False):
+    detectorId: str
+    status: str
+    matched: bool
+    finalDisposition: str | None
+    score: float
+    details: str
+    spans: list[Span]
+
+
+class GuardrailTest(TypedDict, total=False):
+    """A guardrail scan result: the overall outcome and one row per detector."""
+
+    finalDisposition: str | None
+    results: list[GuardrailTestResult]
+    suspiciousCharacters: Any
+    decoding: Any
+    rewritten: str | None
+    latencyMs: int
+    scannedChars: int
+    truncated: bool
+
+
+# ---- virtual keys
+class PolicyAssignment(TypedDict, total=False):
+    id: str
+    assignedByOrg: bool
+    """Forced onto the key by the org; cannot be removed from the key."""
+
+
+class BudgetWindows(TypedDict, total=False):
+    hourly: float | None
+    daily: float | None
+    weekly: float | None
+    monthly: float | None
 
 
 class VirtualKey(TypedDict, total=False):
     id: str
     keyName: str
     keyType: str
+    """``user`` or ``service``."""
     scope: str
     keyPreview: str
+    """``faig_…6b0b``: enough to recognise, never the secret."""
     status: str
-    createdBy: dict[str, Any]
-    owner: dict[str, Any]
-    workspace: dict[str, Any]
-    project: Any
-    policyIds: list[dict[str, Any]]
-    providerAccess: list[dict[str, Any]]
-    modelGroups: list[Any]
-    budgetWindows: dict[str, Any]
-    windowSpend: dict[str, Any]
+    """``active``, ``revoked``, ..."""
+    createdBy: UserRef
+    owner: UserRef | None
+    workspace: IdName
+    project: IdName | None
+    policyIds: list[PolicyAssignment]
+    providerAccess: list[ProviderAccess]
+    modelGroups: list[ModelGroup]
+    budgetWindows: BudgetWindows
+    """Spend caps per window (None = uncapped)."""
+    windowSpend: BudgetWindows
+    """Spend so far in each window."""
     workspaceSpend: float
     suspension: Any
     spend: float
@@ -233,73 +682,427 @@ class VirtualKey(TypedDict, total=False):
     revokeReason: str | None
     createdAt: str
     updatedAt: str
-    updatedBy: dict[str, Any]
+    updatedBy: UserRef
 
 
+class NewVirtualKey(VirtualKey, total=False):
+    """A key as create and rotate return it: the record plus its secret."""
+
+    secretKey: str
+    """The ``faig_...`` secret. Shown ONCE; store it now."""
+    previousSecretValidUntil: str | None
+    """After a rotate, until when the old secret still works (None: not at all)."""
+
+
+class KeyCheck(TypedDict):
+    valid: bool
+    model_count: int
+    http_status: int
+
+
+# ---- reports
+class UsageAdoption(TypedDict, total=False):
+    activeUsers: int
+    provisionedUsers: int
+    activeKeys: int
+    provisionedKeys: int
+
+
+class UsageSummary(TypedDict, total=False):
+    window: DateWindow
+    previousWindow: DateWindow
+    """The same-length window before, for comparison."""
+    totals: Volume
+    adoption: UsageAdoption
+
+
+class UsageTrendPoint(TypedDict, total=False):
+    at: str
+    requests: int
+    tokens: int
+    partial: bool
+    """The bucket is still filling (it includes now)."""
+
+
+class UsageTrend(TypedDict, total=False):
+    interval: str
+    points: list[UsageTrendPoint]
+
+
+class CostTotals(TypedDict, total=False):
+    chargebackSpend: Spend
+    providerSpend: Spend
+
+
+class CostSummary(TypedDict, total=False):
+    window: DateWindow
+    previousWindow: DateWindow
+    measures: list[str]
+    """The spend measures present, e.g. ``["chargebackSpend"]``."""
+    totals: CostTotals
+    volume: Volume
+
+
+class CostTrendPoint(TypedDict, total=False):
+    at: str
+    chargebackSpend: float
+    providerSpend: float
+    partial: bool
+
+
+class CostTrend(TypedDict, total=False):
+    interval: str
+    measures: list[str]
+    points: list[CostTrendPoint]
+
+
+class RankRow(TypedDict, total=False):
+    """One ranked key, user, workspace or model. Usage rankings carry
+    ``requests``/``tokens``; cost rankings ``chargebackSpend``, ``share``
+    and ``volume``."""
+
+    id: str
+    name: str
+    """For a deleted key, its id."""
+    slot: int
+    deleted: bool
+    status: str
+    keyType: str
+    requests: int
+    tokens: int
+    chargebackSpend: Spend
+    providerSpend: Spend
+    share: float
+    """Fraction (0-1) of the window's spend."""
+    volume: Volume
+    scope: ScopeRef
+    scopes: list[ScopeRef]
+    owner: UserRef
+    user: UserRef
+    role: str
+    provider: IdName
+
+
+class RankMeta(TypedDict, total=False):
+    totalCount: int
+    """How many items exist in the dimension, not how many were returned."""
+    complete: bool
+    windowRequests: int
+    windowTokens: int
+    dimensionRequests: int
+    dimensionTokens: int
+    windowTotals: CostTotals
+
+
+class Rankings(TypedDict, total=False):
+    """Read the rows with ``rank_items()``: ``items``, or ``top``/``bottom``
+    for ``end="both"``, and only ``meta`` when nothing was used."""
+
+    items: list[RankRow]
+    top: list[RankRow]
+    bottom: list[RankRow]
+    measures: list[str]
+    meta: RankMeta
+
+
+class BreakdownRow(TypedDict, total=False):
+    id: str
+    name: str
+    kind: str
+    """For consumers/spenders: ``user``, ``service_key``, ..."""
+    status: str
+    requests: int
+    tokens: int
+    chargebackSpend: Spend
+    provider: IdName
+
+
+class BreakdownGroup(TypedDict, total=False):
+    count: int
+    items: list[BreakdownRow]
+    attributed: Volume
+
+
+class BreakdownTotal(TypedDict, total=False):
+    requests: int
+    tokens: int
+    chargebackSpend: Spend
+
+
+class Breakdown(TypedDict, total=False):
+    """Read the rows with ``breakdown_items()``. A key, user or workspace
+    splits into ``models`` (a user or workspace may add ``keys``); a model
+    into ``consumers`` (usage) or ``spenders`` (cost)."""
+
+    models: BreakdownGroup
+    keys: BreakdownGroup
+    consumers: BreakdownGroup
+    spenders: BreakdownGroup
+    total: BreakdownTotal
+    measures: list[str]
+
+
+class Outcomes(TypedDict, total=False):
+    blocked: int
+    redacted: int
+    alerted: int
+    logged: int
+
+
+class AnalyticsSummary(TypedDict, total=False):
+    totalScanned: int
+    cleanRequests: int
+    violatedRequests: int
+    unscanned: int
+    outcomes: Outcomes
+    severity: dict[str, int]
+    """``{"critical", "high", "medium", "low"}`` counts."""
+    criticalByOutcome: Outcomes
+    highByOutcome: Outcomes
+    latency: dict[str, int]
+    """``{"avgMs", "guardOverheadMs"}``."""
+    deltas: dict[str, Any]
+    """Change against the previous window, per measure: ``{"abs", "pct"}``."""
+    unboundModels: list[Any]
+
+
+class ViolationRow(TypedDict, total=False):
+    entity: DisplayRef
+    """The key, user or workspace."""
+    requests: int
+    violations: int
+    previousViolations: int | None
+    criticalUnhandled: int
+    deleted: bool
+    guardrails: list[dict[str, Any]]
+    """``[{"guardrail": {"id", "displayName"}, "hits"}]``."""
+    keyStatus: str | None
+    keyType: str | None
+    owner: Any
+    workspace: DisplayRef | None
+
+
+class Violations(TypedDict, total=False):
+    limit: int
+    byKey: list[ViolationRow]
+    byUser: list[ViolationRow]
+    byWorkspace: list[ViolationRow] | None
+    """None on the workspace path."""
+
+
+class DetectorTriggers(TypedDict, total=False):
+    detector: DisplayRef
+    triggers: int
+    disposition: str
+    criticalUnhandled: int
+    owner: Any
+    submittedBy: Any
+
+
+class Analytics(TypedDict, total=False):
+    """Guardrail analytics for a window."""
+
+    window: DateWindow
+    timeRange: str
+    scope: dict[str, Any]
+    """``{"workspace": DisplayRef | None}``."""
+    summary: AnalyticsSummary
+    violations: Violations
+    detectors: dict[str, Any]
+    """``{"items": [DetectorTriggers]}``."""
+    governancePacks: dict[str, Any]
+    """``{"catalogCount", "items": [{"pack": DisplayRef, "triggers"}]}``."""
+    violationTrend: dict[str, Any]
+    """``{"bucketUnit", "bucketMinutes", "buckets": [Outcomes + "startsAt"]}``."""
+    scannerLatency: dict[str, Any]
+    """``{"points": [{"at", "avgMs", "p50Ms", "p95Ms", "p99Ms"}], "summaries": [...]}``."""
+    unhandled: dict[str, Any]
+    """``{"cells": [{"severity", "handled", "total", "detectors"}]}``."""
+
+
+# ---- logs
 class TrafficLogRow(TypedDict, total=False):
-    """A row of ``traffic_logs``; ``timeStamp`` is epoch milliseconds."""
+    """A row of ``traffic_logs``."""
 
     uuid: str
     timeStamp: int
+    """Epoch milliseconds."""
     verdict: bool
-    action: str
+    """True when a guardrail acted (see ``verdictLabel``)."""
     verdictLabel: str
+    """``Block`` or ``Log``."""
+    action: str
+    """``DENY`` for a block, else empty."""
     status: str
+    """``success`` or ``failure`` (the request itself, e.g. a 429)."""
     user: str
     workspace: str
     isGlobalKey: bool
     keyAlias: str
+    """The key's NAME (what the ``virtual_key`` filter matches)."""
     keyPrefix: str
     keyType: str
     model: str | None
     modelGroup: str | None
     requestPath: str
     trafficType: str
+    """``Governed`` or ``Passthrough``."""
+
+
+class PromptText(TypedDict, total=False):
+    original: str
+    modified: str | None
+    """The text after redaction, when a detector rewrote it."""
 
 
 class TrafficLog(TrafficLogRow, total=False):
     """The full record from ``traffic_log(uuid)``."""
 
-    costBasis: str
     httpStatus: int
     errorCode: str | None
+    """e.g. ``rate_limit_exceeded``."""
     upstreamMessage: str | None
     outcome: str | None
+    costBasis: str
+    cost: str
+    duration: str | None
+    latency: Any
     aiFlow: Any
     guardName: str | None
     guardType: str
+    """``input`` or ``output``: which side was scanned (or blocked)."""
     detector: str | None
     guardrail: str | None
     policy: str | None
-    cost: str
-    duration: str
-    latency: Any
     ipaddress: list[str]
-    prompt: dict[str, Any]
-    response: dict[str, Any]
+    prompt: PromptText
+    response: PromptText
     systemPrompt: str
-    tokens: dict[str, Any]
+    tokens: dict[str, int]
+    """``{"input", "output"}``."""
     toolCalls: list[Any]
     toolDefinitions: list[Any]
     toolResponses: list[Any]
-    violation: dict[str, Any]
+    violation: dict[str, list[Any]]
+    """``{"input": [...], "output": [...]}``: what each side matched."""
     userAgent: str | None
     requestId: str
     sessionId: str | None
     org: Any
 
 
+class _LogPage(TypedDict, total=False):
+    total: int
+    """On the first page only."""
+    offset: int
+    hasNext: bool
+    hasPrev: bool
+    nextCursor: str | None
+    """Pass back as ``cursor`` for the next page."""
+    prevCursor: str | None
+
+
+class TrafficLogPage(_LogPage, total=False):
+    items: list[TrafficLogRow]
+
+
+class TrafficFilterOptions(TypedDict, total=False):
+    """The values seen in the window, per filter (``virtualKey`` = key names)."""
+
+    verdict: list[str]
+    user: list[str]
+    workspace: list[str]
+    virtualKey: list[str]
+    model: list[str]
+    trafficType: list[str]
+
+
+class IcapLogPage(_LogPage, total=False):
+    """Not verified live (ICAP was off on the test appliance); rows untyped."""
+
+    items: list[dict[str, Any]]
+
+
 class AuditLogRow(TypedDict, total=False):
     uuid: str
     timeStamp: int
+    """Epoch milliseconds."""
     username: str
     sourceIp: str
     type: str
+    """``Configuration``, ``Authentication``, ..."""
     action: str
+    """Lowercase (``create``); filter values are capitalised (``Create``)."""
     actionLabel: str
     message: str
     role: str
     workspace: str | None
+
+
+class AuditLogPage(_LogPage, total=False):
+    items: list[AuditLogRow]
+
+
+class AuditFilterOptions(TypedDict, total=False):
+    user: list[str]
+    role: list[str]
+    action: list[str]
+    workspace: list[str]
+
+
+# ---- gateway
+class ChatMessage(TypedDict, total=False):
+    role: str
+    content: str | None
+
+
+class ChatChoice(TypedDict, total=False):
+    index: int
+    message: ChatMessage
+    finish_reason: str | None
+    """``content_filter`` when a guardrail blocked (see ``blocked``)."""
+    logprobs: Any
+
+
+class ChatUsage(TypedDict, total=False):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    prompt_tokens_details: dict[str, Any]
+    completion_tokens_details: dict[str, Any]
+
+
+class ChatCompletion(TypedDict, total=False):
+    """An OpenAI-compatible chat completion."""
+
+    id: str
+    object: str
+    created: int
+    model: str
+    choices: list[ChatChoice]
+    usage: ChatUsage
+    service_tier: str
+    system_fingerprint: str
+
+
+class ChunkChoice(TypedDict, total=False):
+    index: int
+    delta: ChatMessage
+    finish_reason: str | None
+    logprobs: Any
+
+
+class ChatCompletionChunk(TypedDict, total=False):
+    """One streamed ``chat.completion.chunk``."""
+
+    id: str
+    object: str
+    created: int
+    model: str
+    choices: list[ChunkChoice]
+    usage: ChatUsage
+    service_tier: str
+    system_fingerprint: str
 
 
 class Ensured(NamedTuple):
@@ -602,7 +1405,7 @@ class FortiAIGate:
         self._jar = http.cookiejar.CookieJar()
         self._opener = _KeepAliveOpener(self._ctx, self._jar)
         self._ws_ids: dict[str, str] = {}  # workspace name -> id
-        self._builtin_cache: list[dict[str, Any]] | None = None
+        self._builtin_cache: list[BuiltinDetector] | None = None
 
     @classmethod
     def from_env(cls, **kw: Any) -> FortiAIGate:
@@ -773,28 +1576,32 @@ class FortiAIGate:
     def _list(self, path: str, params: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
         return items(self.get(path, params))
 
-    def me(self) -> JSON:
+    def me(self) -> Me:
         """The logged-in user (``email``, ``role``, ``memberships``, ...)."""
-        return self.get("/api/v1/user")
+        return cast(Me, self.get("/api/v1/user"))
 
     # -- users & invitations (org admin) -----------------------------------------
-    def users(self) -> list[dict[str, Any]]:
-        return self._list("/api/v1/admin/users")
+    def users(self) -> list[User]:
+        return cast("list[User]", self._list("/api/v1/admin/users"))
 
-    def user(self, user_id: str) -> JSON:
-        return self.get(f"/api/v1/admin/users/{_q(user_id)}")
+    def user(self, user_id: str) -> User:
+        return cast(User, self.get(f"/api/v1/admin/users/{_q(user_id)}"))
 
-    def user_by_email(self, email: str) -> dict[str, Any] | None:
+    def user_by_email(self, email: str) -> User | None:
         e = email.lower()
         return next((u for u in self.users() if str(u.get("email", "")).lower() == e), None)
 
     def invite(self, email: str, role: str = ROLE_MEMBER) -> JSON:
+        """Invite a user (no email is sent). Not verified live (an org-level
+        write), so the response is untyped: the API's JSON as-is."""
         return self.post("/api/v1/admin/user-invitations", {"emails": [email], "orgRole": role})
 
     def accept_invite(
         self, invitation_id: str, email: str, password: str, display_name: str = ""
     ) -> JSON:
-        """Unauthenticated in the product, so sent with no session cookie."""
+        """Unauthenticated in the product, so sent with no session cookie.
+        Not verified live (an org-level write), so the
+        response is untyped: the API's JSON as-is."""
         body: dict[str, Any] = {"email": email, "password": password}
         if display_name:
             body["displayName"] = display_name
@@ -811,11 +1618,14 @@ class FortiAIGate:
         return json.loads(txt) if txt.strip() else None
 
     def delete_user(self, user_id: str) -> JSON:
+        """Not verified live (an org-level write), so the
+        response is untyped: the API's JSON as-is."""
         return self.delete(f"/api/v1/admin/users/{_q(user_id)}")
 
     def make_workspace_admin(self, user_id: str, ws_id: WsRef) -> JSON:
         """The user update REPLACES the user's workspace list, so the existing
-        memberships are kept and this one added."""
+        memberships are kept and this one added. Not verified live (an org-level write), so the
+        response is untyped: the API's JSON as-is."""
         ws_id = self.resolve_workspace(ws_id)
         u = self.user(user_id)
         keep = [
@@ -852,6 +1662,7 @@ class FortiAIGate:
         return self._ws_ids[ws]
 
     def _load_workspace_names(self) -> None:
+        records: Sequence[Mapping[str, Any]]
         try:
             records = self.workspaces()
         except FaigError as e:
@@ -876,9 +1687,9 @@ class FortiAIGate:
         """Every workspace (org admin)."""
         return cast("list[Workspace]", self._list("/api/v1/admin/workspaces"))
 
-    def my_workspaces(self) -> list[Workspace]:
+    def my_workspaces(self) -> list[MyWorkspace]:
         """The workspaces the logged-in user is a member of."""
-        return cast("list[Workspace]", self._list("/api/v1/me/workspaces"))
+        return cast("list[MyWorkspace]", self._list("/api/v1/me/workspaces"))
 
     def workspace_by_name(self, name: str) -> Workspace | None:
         return next((w for w in self.workspaces() if w.get("workspaceName") == name), None)
@@ -890,7 +1701,8 @@ class FortiAIGate:
         provider_ids: Iterable[str],
         description: str = "",
     ) -> JSON:
-        """``admin_ids`` must be EXISTING user ids (a pending invitation is not one)."""
+        """``admin_ids`` must be EXISTING user ids (a pending invitation is not one).
+        Not verified live (an org-level write), so the response is untyped: the API's JSON as-is."""
         return self.post(
             "/api/v1/admin/workspaces",
             {
@@ -906,23 +1718,25 @@ class FortiAIGate:
         )
 
     def delete_workspace(self, ws_id: WsRef) -> JSON:
+        """Not verified live (an org-level write), so the
+        response is untyped: the API's JSON as-is."""
         return self.delete(f"/api/v1/admin/workspaces/{self._ws(ws_id)}")
 
-    def workspace_members(self, ws_id: WsRef) -> JSON:
-        return self.get(f"/api/v1/workspaces/{self._ws(ws_id)}/members")
+    def workspace_members(self, ws_id: WsRef) -> WorkspaceMembers:
+        return cast(WorkspaceMembers, self.get(f"/api/v1/workspaces/{self._ws(ws_id)}/members"))
 
-    def workspace_budget(self, ws_id: WsRef) -> JSON:
-        return self.get(f"/api/v1/workspaces/{self._ws(ws_id)}/budget")
+    def workspace_budget(self, ws_id: WsRef) -> WorkspaceBudget:
+        return cast(WorkspaceBudget, self.get(f"/api/v1/workspaces/{self._ws(ws_id)}/budget"))
 
-    def workspace(self, ws_id: WsRef) -> dict[str, Any]:
+    def workspace(self, ws_id: WsRef) -> WorkspaceSettings:
         """A workspace's settings: ``allowedModels``, ``allowedPolicies``,
         ``allowedGuardrails``, budgets and member defaults."""
         data = self.get(f"/api/v1/workspaces/{self._ws(ws_id)}")
-        return dict(data) if isinstance(data, dict) else {}
+        return cast(WorkspaceSettings, dict(data) if isinstance(data, dict) else {})
 
     def workspace_analytics(
         self, ws_id: WsRef, frm: Day | None = None, to: Day | None = None, limit: int = 10
-    ) -> JSON:
+    ) -> Analytics:
         """Guardrail analytics for a workspace; see ``analytics``."""
         return self.analytics(frm, to, limit=limit, ws_id=ws_id)
 
@@ -971,7 +1785,7 @@ class FortiAIGate:
             )
         return found.pop()
 
-    def _builtins(self) -> list[dict[str, Any]]:
+    def _builtins(self) -> list[BuiltinDetector]:
         if self._builtin_cache is None:
             self._builtin_cache = self.builtin_detectors()
         return self._builtin_cache
@@ -1005,45 +1819,58 @@ class FortiAIGate:
             )
         return cast("list[Detector]", self._list("/api/v1/admin/detectors"))
 
-    def builtin_detectors(self) -> list[dict[str, Any]]:
+    def builtin_detectors(self) -> list[BuiltinDetector]:
         """Built-in detectors, identified by a slug id; a guardrail can use either kind."""
-        return self._list("/api/v1/admin/built-in-detectors")
+        return cast("list[BuiltinDetector]", self._list("/api/v1/admin/built-in-detectors"))
 
     def detector_by_name(self, ws_id: WsRef, name: str) -> Detector | None:
         return next((d for d in self.detectors(ws_id) if d.get("name") == name), None)
 
-    def create_detector(self, ws_id: WsRef, body: Mapping[str, Any]) -> JSON:
+    def create_detector(self, ws_id: WsRef, body: Mapping[str, Any]) -> Detector:
         """See ``regex_detector_body``, ``dlp_detector_body`` and ``ai_detector_body``.
         A name already used in the workspace is a ``Conflict``."""
-        return self.post(f"/api/v1/workspaces/{self._ws(ws_id)}/detectors", dict(body))
+        return cast(
+            Detector, self.post(f"/api/v1/workspaces/{self._ws(ws_id)}/detectors", dict(body))
+        )
 
-    def update_detector(self, ws_id: WsRef, uuid: Ref, body: Mapping[str, Any]) -> JSON:
+    def update_detector(self, ws_id: WsRef, uuid: Ref, body: Mapping[str, Any]) -> Detector:
         did = _q(self.resolve_detector(uuid, ws_id))
-        return self.put(f"/api/v1/workspaces/{self._ws(ws_id)}/detectors/{did}", dict(body))
+        return cast(
+            Detector, self.put(f"/api/v1/workspaces/{self._ws(ws_id)}/detectors/{did}", dict(body))
+        )
 
-    def delete_detector(self, uuid: Ref, ws_id: WsRef | None = None) -> JSON:
+    def delete_detector(self, uuid: Ref, ws_id: WsRef | None = None) -> None:
         """Delete a workspace detector (``ws_id``) or, as org admin, any detector."""
         did = _q(self.resolve_detector(uuid, ws_id))
         if ws_id:
-            return self.delete(f"/api/v1/workspaces/{self._ws(ws_id)}/detectors/{did}")
-        return self.delete(f"/api/v1/admin/detectors/{did}")
+            self.delete(f"/api/v1/workspaces/{self._ws(ws_id)}/detectors/{did}")
+        else:
+            self.delete(f"/api/v1/admin/detectors/{did}")
 
-    def playground(self, text: str, body: Mapping[str, Any], ws_id: WsRef | None = None) -> JSON:
+    def playground(
+        self, text: str, body: Mapping[str, Any], ws_id: WsRef | None = None
+    ) -> DetectorTest:
         """Scan ``text`` with a detector BODY that need not be saved (the
         console's Playground): build it with ``regex_detector_body``,
         ``dlp_detector_body`` or ``ai_detector_body``."""
         detector = {k: v for k, v in body.items() if k not in ("name", "description")}
         payload = {"input": text, "detector": detector}
         if ws_id:
-            return self.post(f"/api/v1/workspaces/{self._ws(ws_id)}/detectors/test", payload)
-        return self.post("/api/v1/admin/detectors/test", payload)
+            return cast(
+                DetectorTest,
+                self.post(f"/api/v1/workspaces/{self._ws(ws_id)}/detectors/test", payload),
+            )
+        return cast(DetectorTest, self.post("/api/v1/admin/detectors/test", payload))
 
-    def test_detector(self, ws_id: WsRef, uuid: Ref, text: str) -> JSON:
+    def test_detector(self, ws_id: WsRef, uuid: Ref, text: str) -> DetectorTest:
         """Scan text with a SAVED detector: ``matched``, ``finalDisposition``,
         ``score``, ``spans``. For an unsaved body use ``playground``."""
         did = _q(self.resolve_detector(uuid, ws_id))
-        return self.post(
-            f"/api/v1/workspaces/{self._ws(ws_id)}/detectors/{did}/test", {"input": text}
+        return cast(
+            DetectorTest,
+            self.post(
+                f"/api/v1/workspaces/{self._ws(ws_id)}/detectors/{did}/test", {"input": text}
+            ),
         )
 
     def ensure_detector(
@@ -1059,7 +1886,7 @@ class FortiAIGate:
         if current is None:
             created = self.create_detector(ws, body)
             action = "created"
-            current = cast(Detector, created)
+            current = created
         elif _differs(body, current):
             self.update_detector(ws, current["uuid"], body)
             action = "updated"
@@ -1098,15 +1925,18 @@ class FortiAIGate:
         description: str = "",
         *,
         deny_suspicious_characters: bool = False,
-    ) -> JSON:
+    ) -> Guardrail:
         """``detector_ids`` may be detector names (custom or built-in)."""
-        return self.post(
-            f"/api/v1/workspaces/{self._ws(ws_id)}/guardrails",
-            guardrail_body(
-                name,
-                self._ids("detectors", detector_ids, ws_id),
-                description,
-                deny_suspicious_characters=deny_suspicious_characters,
+        return cast(
+            Guardrail,
+            self.post(
+                f"/api/v1/workspaces/{self._ws(ws_id)}/guardrails",
+                guardrail_body(
+                    name,
+                    self._ids("detectors", detector_ids, ws_id),
+                    description,
+                    deny_suspicious_characters=deny_suspicious_characters,
+                ),
             ),
         )
 
@@ -1119,24 +1949,28 @@ class FortiAIGate:
         description: str = "",
         *,
         deny_suspicious_characters: bool = False,
-    ) -> JSON:
+    ) -> Guardrail:
         g = _q(self.resolve_guardrail(gid, ws_id))
-        return self.put(
-            f"/api/v1/workspaces/{self._ws(ws_id)}/guardrails/{g}",
-            guardrail_body(
-                name,
-                self._ids("detectors", detector_ids, ws_id),
-                description,
-                deny_suspicious_characters=deny_suspicious_characters,
+        return cast(
+            Guardrail,
+            self.put(
+                f"/api/v1/workspaces/{self._ws(ws_id)}/guardrails/{g}",
+                guardrail_body(
+                    name,
+                    self._ids("detectors", detector_ids, ws_id),
+                    description,
+                    deny_suspicious_characters=deny_suspicious_characters,
+                ),
             ),
         )
 
-    def delete_guardrail(self, gid: Ref, ws_id: WsRef | None = None) -> JSON:
+    def delete_guardrail(self, gid: Ref, ws_id: WsRef | None = None) -> None:
         """Delete a workspace guardrail (``ws_id``) or an org guardrail."""
         g = _q(self.resolve_guardrail(gid, ws_id))
         if ws_id:
-            return self.delete(f"/api/v1/workspaces/{self._ws(ws_id)}/guardrails/{g}")
-        return self.delete(f"/api/v1/admin/guardrails/{g}")
+            self.delete(f"/api/v1/workspaces/{self._ws(ws_id)}/guardrails/{g}")
+        else:
+            self.delete(f"/api/v1/admin/guardrails/{g}")
 
     def test_guardrail(
         self,
@@ -1146,7 +1980,7 @@ class FortiAIGate:
         guardrail_id: Ref | None = None,
         deny_suspicious_characters: bool = False,
         ws_id: WsRef | None = None,
-    ) -> JSON:
+    ) -> GuardrailTest:
         """Scan text through a guardrail without an LLM (the console's guardrail
         tester). Pass ``detector_ids``, or ``guardrail_id`` to reuse a saved
         guardrail's detectors and its denySuspiciousCharacters setting.
@@ -1168,13 +2002,16 @@ class FortiAIGate:
             if ws_id
             else "/api/v1/admin/guardrails/test"
         )
-        return self.post(
-            path,
-            {
-                "input": text,
-                "detectorIds": ids,
-                "denySuspiciousCharacters": deny_suspicious_characters,
-            },
+        return cast(
+            GuardrailTest,
+            self.post(
+                path,
+                {
+                    "input": text,
+                    "detectorIds": ids,
+                    "denySuspiciousCharacters": deny_suspicious_characters,
+                },
+            ),
         )
 
     def ensure_guardrail(
@@ -1255,7 +2092,7 @@ class FortiAIGate:
         provider_ids: list[str] | None = None,
         description: str = "",
         response_scan_mode: str = "post_stream",
-    ) -> JSON:
+    ) -> Policy:
         """Guardrails may be given by name. ``provider_ids`` grants every model
         of those providers. Some 8.0.2 builds refuse a policy that grants no
         model (HTTP 422 "a policy must grant at least one model")."""
@@ -1268,7 +2105,7 @@ class FortiAIGate:
             description,
             response_scan_mode,
         )
-        return self.post(f"/api/v1/workspaces/{self._ws(ws_id)}/policies", body)
+        return cast(Policy, self.post(f"/api/v1/workspaces/{self._ws(ws_id)}/policies", body))
 
     def update_policy(
         self,
@@ -1281,7 +2118,7 @@ class FortiAIGate:
         provider_ids: list[str] | None = None,
         description: str = "",
         response_scan_mode: str = "post_stream",
-    ) -> JSON:
+    ) -> Policy:
         """Replace a workspace policy. Made by an org admin, an edit to an ACTIVE
         policy applies at once (verified on 8.0.2); otherwise check
         ``hasPendingChange`` for an edit held for review."""
@@ -1295,14 +2132,15 @@ class FortiAIGate:
             response_scan_mode,
         )
         p = _q(self.resolve_policy(pid, ws_id))
-        return self.put(f"/api/v1/workspaces/{self._ws(ws_id)}/policies/{p}", body)
+        return cast(Policy, self.put(f"/api/v1/workspaces/{self._ws(ws_id)}/policies/{p}", body))
 
-    def delete_policy(self, pid: Ref, ws_id: WsRef | None = None) -> JSON:
+    def delete_policy(self, pid: Ref, ws_id: WsRef | None = None) -> None:
         """Delete a workspace policy (``ws_id``) or an org policy."""
         p = _q(self.resolve_policy(pid, ws_id))
         if ws_id:
-            return self.delete(f"/api/v1/workspaces/{self._ws(ws_id)}/policies/{p}")
-        return self.delete(f"/api/v1/admin/policies/{p}")
+            self.delete(f"/api/v1/workspaces/{self._ws(ws_id)}/policies/{p}")
+        else:
+            self.delete(f"/api/v1/admin/policies/{p}")
 
     def ensure_policy(
         self,
@@ -1341,15 +2179,18 @@ class FortiAIGate:
         return Ensured(dict(self.policy_by_name(ws, name) or current), action)
 
     # -- approval (org admin) ----------------------------------------------------------
-    def submit(self, ws_id: WsRef, kind: str, obj_id: Ref) -> JSON:
+    def submit(self, ws_id: WsRef, kind: str, obj_id: Ref) -> Detector | Guardrail | Policy:
         """kind: detectors | guardrails | policies. The object may be given by name."""
         oid = _q(self._resolve(_kind(kind), obj_id, ws_id))
-        return self.post(f"/api/v1/workspaces/{self._ws(ws_id)}/{kind}/{oid}/submit")
+        return cast(
+            "Detector | Guardrail | Policy",
+            self.post(f"/api/v1/workspaces/{self._ws(ws_id)}/{kind}/{oid}/submit"),
+        )
 
-    def withdraw(self, ws_id: WsRef, kind: str, obj_id: Ref) -> JSON:
+    def withdraw(self, ws_id: WsRef, kind: str, obj_id: Ref) -> None:
         """Cancel a pending submission or pending change (kind as for ``submit``)."""
         oid = _q(self._resolve(_kind(kind), obj_id, ws_id))
-        return self.delete(f"/api/v1/workspaces/{self._ws(ws_id)}/{kind}/{oid}/pending")
+        self.delete(f"/api/v1/workspaces/{self._ws(ws_id)}/{kind}/{oid}/pending")
 
     def _queued(self, kind: str, obj_id: Ref, ws_id: WsRef | None) -> str:
         """An id for approve/reject. A name is looked up ONLY in ``ws_id``: the
@@ -1361,18 +2202,26 @@ class FortiAIGate:
             raise ValueError(f"approving or rejecting {obj_id!r} by name needs ws_id")
         return self._resolve(_kind(kind), obj_id, ws_id)
 
-    def approve(self, kind: str, obj_id: Ref, ws_id: WsRef | None = None) -> JSON:
+    def approve(
+        self, kind: str, obj_id: Ref, ws_id: WsRef | None = None
+    ) -> Detector | Guardrail | Policy:
         """Approve a submitted object, by id, record, or (with ``ws_id``) name."""
-        return self.post(f"/api/v1/admin/{kind}/{_q(self._queued(kind, obj_id, ws_id))}/approve")
+        return cast(
+            "Detector | Guardrail | Policy",
+            self.post(f"/api/v1/admin/{kind}/{_q(self._queued(kind, obj_id, ws_id))}/approve"),
+        )
 
     def reject(
         self, kind: str, obj_id: Ref, reason: str = "rejected", ws_id: WsRef | None = None
-    ) -> JSON:
+    ) -> Detector | Guardrail | Policy:
         oid = _q(self._queued(kind, obj_id, ws_id))
-        return self.post(f"/api/v1/admin/{kind}/{oid}/reject", {"reason": reason})
+        return cast(
+            "Detector | Guardrail | Policy",
+            self.post(f"/api/v1/admin/{kind}/{oid}/reject", {"reason": reason}),
+        )
 
-    def review_queue(self) -> list[dict[str, Any]]:
-        return self._list("/api/v1/admin/review-queue")
+    def review_queue(self) -> list[ReviewItem]:
+        return cast("list[ReviewItem]", self._list("/api/v1/admin/review-queue"))
 
     # -- virtual keys ----------------------------------------------------------------------
     def virtual_keys(
@@ -1409,7 +2258,7 @@ class FortiAIGate:
         expires_at: str | None = None,
         tpm: int | str | None = None,
         rpm: int | str | None = None,
-    ) -> JSON:
+    ) -> NewVirtualKey:
         """Create a key in a workspace; policies may be given by name. The
         secret is in the response ONCE (``secret_from_response``) and never
         readable again. Key names need not be unique."""
@@ -1421,7 +2270,9 @@ class FortiAIGate:
         for field, value in (("expiresAt", expires_at), ("tpm", tpm), ("rpm", rpm)):
             if value is not None and value != "":
                 body[field] = value
-        return self.post(f"/api/v1/workspaces/{self._ws(ws_id)}/virtual-keys", body)
+        return cast(
+            NewVirtualKey, self.post(f"/api/v1/workspaces/{self._ws(ws_id)}/virtual-keys", body)
+        )
 
     def update_virtual_key(
         self,
@@ -1433,7 +2284,7 @@ class FortiAIGate:
         policy_ids: Sequence[Ref] | None = None,
         provider_ids: list[str] | None = None,
         ws_id: WsRef | None = None,
-    ) -> JSON:
+    ) -> VirtualKey:
         """The update REPLACES the record, so the current one is read and its
         writable fields resent with the changes (8.0.2 rejects read-only fields
         such as ``status`` or ``spend``). ``policy_ids`` replaces the attached
@@ -1449,20 +2300,22 @@ class FortiAIGate:
             body["policyIds"] = self._ids("policies", policy_ids, ws_id)
         if provider_ids is not None:
             body["providerAccess"] = _provider_access(provider_ids)
-        return self.put(path, body)
+        return cast(VirtualKey, self.put(path, body))
 
-    def rotate_virtual_key(self, key_id: Ref, ws_id: WsRef | None = None) -> JSON:
+    def rotate_virtual_key(self, key_id: Ref, ws_id: WsRef | None = None) -> NewVirtualKey:
         """New secret, once, in the response (``secret_from_response``)."""
-        return self.post(self._key_path(key_id, ws_id) + "/rotate")
+        return cast(NewVirtualKey, self.post(self._key_path(key_id, ws_id) + "/rotate"))
 
     def revoke_virtual_key(
         self, key_id: Ref, reason: str = "revoked", ws_id: WsRef | None = None
-    ) -> JSON:
+    ) -> VirtualKey:
         """The secret stops working; 8.0.2 requires a ``reason``."""
-        return self.post(self._key_path(key_id, ws_id) + "/revoke", {"reason": reason})
+        return cast(
+            VirtualKey, self.post(self._key_path(key_id, ws_id) + "/revoke", {"reason": reason})
+        )
 
-    def delete_virtual_key(self, key_id: Ref, ws_id: WsRef | None = None) -> JSON:
-        return self.delete(self._key_path(key_id, ws_id))
+    def delete_virtual_key(self, key_id: Ref, ws_id: WsRef | None = None) -> None:
+        self.delete(self._key_path(key_id, ws_id))
 
     def ensure_virtual_key(
         self,
@@ -1521,43 +2374,53 @@ class FortiAIGate:
         return Ensured(dict(self.virtual_key(current["id"], ws)), "updated")
 
     # -- providers, models, audit ----------------------------------------------------------
-    def ai_providers(self) -> list[dict[str, Any]]:
-        return self._list("/api/v1/admin/ai-providers")
+    def ai_providers(self) -> list[AiProvider]:
+        return cast("list[AiProvider]", self._list("/api/v1/admin/ai-providers"))
 
-    def model_groups(self, ws_id: WsRef | None = None) -> list[dict[str, Any]]:
+    def model_groups(self, ws_id: WsRef | None = None) -> list[ModelGroup]:
         """Model groups: the org's, or those a workspace can use."""
         if ws_id:
-            return self._list(f"/api/v1/workspaces/{self._ws(ws_id)}/model-groups")
-        return self._list("/api/v1/model-groups")
+            return cast(
+                "list[ModelGroup]", self._list(f"/api/v1/workspaces/{self._ws(ws_id)}/model-groups")
+            )
+        return cast("list[ModelGroup]", self._list("/api/v1/model-groups"))
 
-    def models(self) -> list[dict[str, Any]]:
+    def models(self) -> list[Model]:
         """Every model the org knows: costs, health, provider (org admin)."""
-        return self._list("/api/v1/admin/models")
+        return cast("list[Model]", self._list("/api/v1/admin/models"))
 
-    def workspace_models(self, ws_id: WsRef) -> list[Any]:
+    def workspace_models(self, ws_id: WsRef) -> list[str]:
         """The models a workspace allows (its ``allowedModels``)."""
-        return list(self.workspace(ws_id).get("allowedModels") or [])
+        return cast("list[str]", list(self.workspace(ws_id).get("allowedModels") or []))
 
-    def grantable_providers(self, ws_id: WsRef | None = None) -> list[dict[str, Any]]:
+    def grantable_providers(self, ws_id: WsRef | None = None) -> list[GrantableProvider]:
         """Providers, models and upstream keys that can be granted: to keys in a
         workspace (``ws_id``), or org-wide."""
         if ws_id:
             data = self.get(f"/api/v1/workspaces/{self._ws(ws_id)}/grantable-providers")
-            return list(data.get("providers") or []) if isinstance(data, dict) else []
-        return self._list("/api/v1/admin/grantable-providers")
+            return cast(
+                "list[GrantableProvider]",
+                list(data.get("providers") or []) if isinstance(data, dict) else [],
+            )
+        return cast("list[GrantableProvider]", self._list("/api/v1/admin/grantable-providers"))
 
-    def attachable_policies(self, ws_id: WsRef) -> list[dict[str, Any]]:
+    def attachable_policies(self, ws_id: WsRef) -> list[Policy]:
         """Policies a key in this workspace can attach."""
-        return self._list(f"/api/v1/workspaces/{self._ws(ws_id)}/attachable-policies")
+        return cast(
+            "list[Policy]", self._list(f"/api/v1/workspaces/{self._ws(ws_id)}/attachable-policies")
+        )
 
-    def dlp_labels(self) -> list[dict[str, Any]]:
+    def dlp_labels(self) -> list[DlpLabel]:
         """The DLP category names ``dlp_detector_body`` takes."""
-        return self._list("/api/v1/admin/dlp-labels")
+        return cast("list[DlpLabel]", self._list("/api/v1/admin/dlp-labels"))
 
-    def audit_logs(self, offset: int = 0, limit: int = 25) -> JSON:
+    def audit_logs(self, offset: int = 0, limit: int = 25) -> AuditLogPage:
         """One page of the org audit log, newest first. ``iter_audit_logs``
         filters by time, user, role, action and workspace, and follows pages."""
-        return self.get("/api/v1/admin/audit-logs", {"offset": int(offset), "limit": int(limit)})
+        return cast(
+            AuditLogPage,
+            self.get("/api/v1/admin/audit-logs", {"offset": int(offset), "limit": int(limit)}),
+        )
 
     def audit_logs_page(
         self,
@@ -1569,13 +2432,16 @@ class FortiAIGate:
         filters: Mapping[str, Any] | None = None,
         limit: int = LOG_PAGE,
         ws_id: WsRef | None = None,
-    ) -> JSON:
+    ) -> AuditLogPage:
         """One page of audit log rows, cursor-paged like ``traffic_logs_page``.
         ``filters`` fields: user, role, action, message, workspace (spell
         actions as ``audit_log_filter_options`` lists them: ``Approve``, ...)."""
         q = _log_window(range, start, end)
         q.update(_log_filters(filters, AUDIT_FILTERS))
-        return self.get(self._logs_base("audit-logs", ws_id), _cursor_query(q, cursor, limit))
+        return cast(
+            AuditLogPage,
+            self.get(self._logs_base("audit-logs", ws_id), _cursor_query(q, cursor, limit)),
+        )
 
     def iter_audit_logs(
         self,
@@ -1610,18 +2476,21 @@ class FortiAIGate:
         start: When | None = None,
         end: When | None = None,
         ws_id: WsRef | None = None,
-    ) -> JSON:
+    ) -> AuditFilterOptions:
         """The values each audit filter can take (users, roles, actions, ...)."""
         q = (
             _log_window(range or "24h", start, end)
             if range or start is not None or end is not None
             else {}
         )
-        return self.get(f"{self._logs_base('audit-logs', ws_id)}/filter-options", q or None)
+        return cast(
+            AuditFilterOptions,
+            self.get(f"{self._logs_base('audit-logs', ws_id)}/filter-options", q or None),
+        )
 
-    def licenses(self) -> JSON:
+    def licenses(self) -> Licenses:
         """The appliance's licenses (serial, status, end date, GPU mapping)."""
-        return self.get("/api/v1/licenses")
+        return cast(Licenses, self.get("/api/v1/licenses"))
 
     # -- usage, cost and analytics ---------------------------------------------------------
     def _report(
@@ -1634,11 +2503,11 @@ class FortiAIGate:
 
     def usage_summary(
         self, frm: Day | None = None, to: Day | None = None, ws_id: WsRef | None = None
-    ) -> JSON:
+    ) -> UsageSummary:
         """Requests and tokens in the window, the previous window, and key/user
         adoption. Dates are ``date`` objects or ``"YYYY-MM-DD"``; the default
         window is the last 30 days. ``ws_id`` scopes it to a workspace."""
-        return self._report("usage", "summary", frm, to, ws_id)
+        return cast(UsageSummary, self._report("usage", "summary", frm, to, ws_id))
 
     def usage_trend(
         self,
@@ -1646,15 +2515,18 @@ class FortiAIGate:
         to: Day | None = None,
         interval: str = "daily",
         ws_id: WsRef | None = None,
-    ) -> JSON:
+    ) -> UsageTrend:
         """``{"interval", "points": [{"at", "requests", "tokens"}]}``."""
-        return self._report(
-            "usage",
-            "trend",
-            frm,
-            to,
-            ws_id,
-            interval=_one_of("interval", interval, INTERVALS),
+        return cast(
+            UsageTrend,
+            self._report(
+                "usage",
+                "trend",
+                frm,
+                to,
+                ws_id,
+                interval=_one_of("interval", interval, INTERVALS),
+            ),
         )
 
     def usage_rankings(
@@ -1668,16 +2540,19 @@ class FortiAIGate:
         order_by: str | None = None,
         interval: str | None = None,
         ws_id: WsRef | None = None,
-    ) -> JSON:
+    ) -> Rankings:
         """Top (or ``end="bottom"``) keys, users, workspaces or models by usage:
         ``{"items": [...], "meta": {...}}``. ``order_by``: tokens | requests."""
-        return self._report(
-            "usage",
-            "rankings",
-            frm,
-            to,
-            ws_id,
-            **_rank_query(by, limit, end, order_by, interval, USAGE_ORDER),
+        return cast(
+            Rankings,
+            self._report(
+                "usage",
+                "rankings",
+                frm,
+                to,
+                ws_id,
+                **_rank_query(by, limit, end, order_by, interval, USAGE_ORDER),
+            ),
         )
 
     def usage_breakdown(
@@ -1687,20 +2562,23 @@ class FortiAIGate:
         frm: Day | None = None,
         to: Day | None = None,
         ws_id: WsRef | None = None,
-    ) -> JSON:
+    ) -> Breakdown:
         """One ranked item broken down: a key, user or workspace by model, a
         model by who used it. Read the rows with ``breakdown_items()``.
         Rankings still list deleted keys (``deleted: true``); their breakdown
         is a 404."""
-        return self._report(
-            "usage", "breakdown", frm, to, ws_id, by=_one_of("by", by, RANK_BY), id=item_id
+        return cast(
+            Breakdown,
+            self._report(
+                "usage", "breakdown", frm, to, ws_id, by=_one_of("by", by, RANK_BY), id=item_id
+            ),
         )
 
     def cost_summary(
         self, frm: Day | None = None, to: Day | None = None, ws_id: WsRef | None = None
-    ) -> JSON:
+    ) -> CostSummary:
         """Spend (``totals.chargebackSpend``), volume and unit costs in the window."""
-        return self._report("cost", "summary", frm, to, ws_id)
+        return cast(CostSummary, self._report("cost", "summary", frm, to, ws_id))
 
     def cost_trend(
         self,
@@ -1708,14 +2586,17 @@ class FortiAIGate:
         to: Day | None = None,
         interval: str = "daily",
         ws_id: WsRef | None = None,
-    ) -> JSON:
-        return self._report(
-            "cost",
-            "trend",
-            frm,
-            to,
-            ws_id,
-            interval=_one_of("interval", interval, INTERVALS),
+    ) -> CostTrend:
+        return cast(
+            CostTrend,
+            self._report(
+                "cost",
+                "trend",
+                frm,
+                to,
+                ws_id,
+                interval=_one_of("interval", interval, INTERVALS),
+            ),
         )
 
     def cost_rankings(
@@ -1729,16 +2610,19 @@ class FortiAIGate:
         order_by: str | None = None,
         interval: str | None = None,
         ws_id: WsRef | None = None,
-    ) -> JSON:
+    ) -> Rankings:
         """Top spenders by key, user, workspace or model. ``order_by``:
         providerSpend | chargebackSpend | per1kTokens | perRequest."""
-        return self._report(
-            "cost",
-            "rankings",
-            frm,
-            to,
-            ws_id,
-            **_rank_query(by, limit, end, order_by, interval, COST_ORDER),
+        return cast(
+            Rankings,
+            self._report(
+                "cost",
+                "rankings",
+                frm,
+                to,
+                ws_id,
+                **_rank_query(by, limit, end, order_by, interval, COST_ORDER),
+            ),
         )
 
     def cost_breakdown(
@@ -1748,9 +2632,12 @@ class FortiAIGate:
         frm: Day | None = None,
         to: Day | None = None,
         ws_id: WsRef | None = None,
-    ) -> JSON:
-        return self._report(
-            "cost", "breakdown", frm, to, ws_id, by=_one_of("by", by, RANK_BY), id=item_id
+    ) -> Breakdown:
+        return cast(
+            Breakdown,
+            self._report(
+                "cost", "breakdown", frm, to, ws_id, by=_one_of("by", by, RANK_BY), id=item_id
+            ),
         )
 
     def analytics(
@@ -1759,15 +2646,21 @@ class FortiAIGate:
         to: Day | None = None,
         limit: int = 10,
         ws_id: WsRef | None = None,
-    ) -> JSON:
+    ) -> Analytics:
         """Guardrail analytics: violations by detector, key, user and workspace,
         severity, trend and scanner latency."""
         if ws_id:
-            return self.get(
-                f"/api/v1/workspaces/{self._ws(ws_id)}/analytics",
-                {**_window(frm, to), "limit": int(limit)},
+            return cast(
+                Analytics,
+                self.get(
+                    f"/api/v1/workspaces/{self._ws(ws_id)}/analytics",
+                    {**_window(frm, to), "limit": int(limit)},
+                ),
             )
-        return self.get("/api/v1/admin/analytics", {**_window(frm, to), "limit": int(limit)})
+        return cast(
+            Analytics,
+            self.get("/api/v1/admin/analytics", {**_window(frm, to), "limit": int(limit)}),
+        )
 
     # -- traffic and ICAP logs --------------------------------------------------------------
     def _logs_base(self, kind: str, ws_id: WsRef | None) -> str:
@@ -1785,12 +2678,15 @@ class FortiAIGate:
         filters: Mapping[str, Any] | None = None,
         limit: int = LOG_PAGE,
         ws_id: WsRef | None = None,
-    ) -> JSON:
+    ) -> TrafficLogPage:
         """One page: ``{"items", "nextCursor", "hasNext", "total"}`` (``total``
         on the first page only). Pass the previous ``nextCursor`` to go on."""
         q = _log_window(range, start, end)
         q.update(_log_filters(filters, TRAFFIC_FILTERS))
-        return self.get(self._logs_base("traffic-logs", ws_id), _cursor_query(q, cursor, limit))
+        return cast(
+            TrafficLogPage,
+            self.get(self._logs_base("traffic-logs", ws_id), _cursor_query(q, cursor, limit)),
+        )
 
     def traffic_logs(
         self,
@@ -1867,11 +2763,14 @@ class FortiAIGate:
         start: When | None = None,
         end: When | None = None,
         ws_id: WsRef | None = None,
-    ) -> JSON:
+    ) -> TrafficFilterOptions:
         """The values each filter can take in the window (models, users, keys, ...)."""
-        return self.get(
-            f"{self._logs_base('traffic-logs', ws_id)}/filter-options",
-            _log_window(range, start, end),
+        return cast(
+            TrafficFilterOptions,
+            self.get(
+                f"{self._logs_base('traffic-logs', ws_id)}/filter-options",
+                _log_window(range, start, end),
+            ),
         )
 
     def icap_logs_page(
@@ -1884,13 +2783,13 @@ class FortiAIGate:
         filters: Mapping[str, Any] | None = None,
         limit: int = LOG_PAGE,
         ws_id: WsRef | None = None,
-    ) -> JSON:
+    ) -> IcapLogPage:
         """One page of ICAP logs (FortiGate-inspected traffic; offset paging).
         404 when the appliance has ICAP turned off."""
         q = _log_window(range, start, end)
         q.update(_log_filters(filters, ICAP_FILTERS))
         q.update({"offset": int(offset), "limit": int(limit)})
-        return self.get(self._logs_base("icap-logs", ws_id), q)
+        return cast(IcapLogPage, self.get(self._logs_base("icap-logs", ws_id), q))
 
     def icap_logs(
         self,
@@ -1928,6 +2827,8 @@ class FortiAIGate:
                 return
 
     def icap_log(self, uuid: str, ws_id: WsRef | None = None) -> dict[str, Any]:
+        """One ICAP log record. Not verified live (ICAP was off on the test
+        appliance), so it is untyped."""
         data = self.get(f"{self._logs_base('icap-logs', ws_id)}/{_q(uuid)}")
         return dict(data) if isinstance(data, dict) else {}
 
@@ -1938,10 +2839,13 @@ class FortiAIGate:
         start: When | None = None,
         end: When | None = None,
         ws_id: WsRef | None = None,
-    ) -> JSON:
-        return self.get(
-            f"{self._logs_base('icap-logs', ws_id)}/filter-options",
-            _log_window(range, start, end),
+    ) -> dict[str, Any]:
+        return cast(
+            "dict[str, Any]",
+            self.get(
+                f"{self._logs_base('icap-logs', ws_id)}/filter-options",
+                _log_window(range, start, end),
+            ),
         )
 
     # -- gateway (data plane) ----------------------------------------------------------------
@@ -1956,15 +2860,18 @@ class FortiAIGate:
             timeout=timeout,
         )
 
-    def check_key(self, api_key: str) -> dict[str, Any]:
+    def check_key(self, api_key: str) -> KeyCheck:
         """Is a virtual key secret accepted by the gateway? Returns ``valid`` and
         ``model_count``; only an unexpected status raises."""
         path = "/ai/openai/v1/models"
         st, txt = self._gateway("GET", path, api_key)
         if st == 200:
-            return {"valid": True, "model_count": len(items(json.loads(txt))), "http_status": st}
+            return cast(
+                KeyCheck,
+                {"valid": True, "model_count": len(items(json.loads(txt))), "http_status": st},
+            )
         if st in (401, 403):
-            return {"valid": False, "model_count": 0, "http_status": st}
+            return cast(KeyCheck, {"valid": False, "model_count": 0, "http_status": st})
         raise error_for("GET", path, st, txt)
 
     def available_models(self, api_key: str) -> list[str]:
@@ -1990,7 +2897,7 @@ class FortiAIGate:
         temperature: float | None = None,
         timeout: float = 120,
         **extra: Any,
-    ) -> JSON:
+    ) -> ChatCompletion:
         """One OpenAI-compatible chat completion through the gateway; the key's
         policies apply. A guardrail block is HTTP 200 with ``finish_reason``
         ``content_filter`` (see ``blocked``), not an exception."""
@@ -2005,7 +2912,7 @@ class FortiAIGate:
         st, txt = self._gateway("POST", path, api_key, body, timeout=max(self.timeout, timeout))
         if st != 200:
             raise error_for("POST", path, st, txt)
-        return json.loads(txt)
+        return cast(ChatCompletion, json.loads(txt))
 
     def chat_completion_stream(
         self,
@@ -2260,7 +3167,7 @@ def _q(segment: str) -> str:
     return urllib.parse.quote(str(segment), safe="")
 
 
-def collect_stream(chunks: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
+def collect_stream(chunks: Iterable[Mapping[str, Any]]) -> ChatCompletion:
     """Join ``chat_completion_stream`` chunks into one ``chat.completion``:
     each choice's ``message.content`` is its deltas joined, ``finish_reason``
     the last one given. A non-streamed completion passes through unchanged."""
@@ -2268,7 +3175,7 @@ def collect_stream(chunks: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     choices: dict[int, dict[str, Any]] = {}
     for chunk in chunks:
         if any("message" in c for c in chunk.get("choices") or []):
-            return dict(chunk)
+            return cast(ChatCompletion, dict(chunk))
         for key in ("id", "model", "created", "usage"):
             if chunk.get(key) is not None:
                 out[key] = chunk[key]
@@ -2289,7 +3196,7 @@ def collect_stream(chunks: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
             if c.get("finish_reason"):
                 slot["finish_reason"] = c["finish_reason"]
     out["choices"] = [choices[i] for i in sorted(choices)]
-    return out
+    return cast(ChatCompletion, out)
 
 
 def blocked(completion: JSON) -> bool:

@@ -130,7 +130,7 @@ def cmd_models(c: FortiAIGate, args: argparse.Namespace) -> Any:
 
 def _report(c: FortiAIGate, args: argparse.Namespace, kind: str) -> Any:
     frm, to = _window(args)
-    summary = (c.usage_summary if kind == "usage" else c.cost_summary)(frm, to, ws_id=args.ws)
+    summary: Any = (c.usage_summary if kind == "usage" else c.cost_summary)(frm, to, ws_id=args.ws)
     rankings = (c.usage_rankings if kind == "usage" else c.cost_rankings)(
         frm, to, by=args.by, limit=args.limit, ws_id=args.ws
     )

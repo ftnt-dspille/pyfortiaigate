@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Every method now declares what it returns: about 80 `TypedDict` response
+  types (`UsageSummary`, `Rankings`, `Breakdown`, `Analytics`,
+  `TrafficLogPage`, `DetectorTest`, `GuardrailTest`, `NewVirtualKey`,
+  `ChatCompletion`, ...), recorded from a live 8.0.2 appliance and exported from
+  the package. The docs list every field with its type and meaning, and the
+  Actions page links each method to the type it returns.
+- A live conformance test fails when the appliance returns a field the
+  declared type lacks, so the documented fields stay complete.
+
+### Changed
+
+- `delete_detector`, `delete_guardrail`, `delete_policy`, `delete_virtual_key`
+  and `withdraw` return None (the appliance answers with an empty body).
+- `my_workspaces()` is annotated as `list[MyWorkspace]` (its real shape),
+  not `list[Workspace]`.
+
 ## [0.2.0] - 2026-10-13
 
 ### Added
