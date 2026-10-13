@@ -1,0 +1,3 @@
+# FortiAIGate client
+
+::: pyfortiaigate.FortiAIGate

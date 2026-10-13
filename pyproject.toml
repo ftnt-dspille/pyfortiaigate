@@ -1,0 +1,78 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pyfortiaigate"
+dynamic = ["version"]
+description = "Python client for the FortiAIGate 8.x management and gateway API, standard library only"
+readme = "README.md"
+authors = [{ name = "Dylan Spille" }]
+license = { text = "MIT" }
+keywords = ["fortinet", "fortiaigate", "ai-gateway", "guardrails", "api"]
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=7.0", "pytest-cov>=4.0"]
+typecheck = ["mypy>=1.13"]
+# Pinned so a local run and CI agree; bump deliberately.
+lint = ["ruff==0.16.10"]
+docs = ["mkdocs>=1.6,<2", "mkdocs-material>=9.5", "mkdocstrings[python]>=0.26"]
+dev = ["pyfortiaigate[test,typecheck,lint,docs]"]
+
+[project.urls]
+Homepage = "https://github.com/ftnt-dspille/pyfortiaigate"
+Repository = "https://github.com/ftnt-dspille/pyfortiaigate.git"
+Issues = "https://github.com/ftnt-dspille/pyfortiaigate/issues"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.version.raw-options]
+version_scheme = "no-guess-dev"
+fallback_version = "0.0.0"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pyfortiaigate"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = ["live: talks to a real FortiAIGate (opt-in: FAIG_LIVE=1)"]
+
+[tool.coverage.run]
+source = ["pyfortiaigate"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 97
+exclude_also = ["raise AssertionError\\(\"unreachable\"\\)", "if TYPE_CHECKING:"]
+
+[tool.mypy]
+strict = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PT", "C4"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011"]
