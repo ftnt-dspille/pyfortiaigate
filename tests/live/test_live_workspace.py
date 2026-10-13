@@ -57,7 +57,8 @@ def ws(faig: FortiAIGate) -> Iterator[str]:
     w = faig.workspace_by_name(WORKSPACE)
     assert w, f"no workspace named {WORKSPACE!r}"
     sweep(faig, w["id"])
-    yield w["id"]
+    # Every call below passes the workspace NAME: resolution is under test too.
+    yield WORKSPACE
     sweep(faig, w["id"])
     left = [
         x
@@ -202,7 +203,8 @@ def test_withdraw_a_pending_submission(
 def _model(faig: FortiAIGate, ws: str) -> str:
     if os.environ.get("FAIG_TEST_MODEL"):
         return os.environ["FAIG_TEST_MODEL"]
-    w = next(x for x in faig.workspaces() if x["id"] == ws)
+    wid = faig.resolve_workspace(ws)
+    w = next(x for x in faig.workspaces() if x["id"] == wid)
     for access in w.get("providerAccess") or []:
         if access.get("providerId") == "openai":
             for m in access.get("models") or []:
@@ -250,7 +252,7 @@ def test_the_keys_own_traffic_shows_up_with_cost(
     for _ in range(12):  # logs land asynchronously
         rows = list(
             faig.traffic_logs(
-                range="24h", filters={"virtual_key": f"{RUN}-key"}, workspace_id=ws, max_items=5
+                range="24h", filters={"virtual_key": f"{RUN}-key"}, ws_id=ws, max_items=5
             )
         )
         if rows:

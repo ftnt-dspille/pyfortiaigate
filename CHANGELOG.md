@@ -29,6 +29,11 @@ All notable changes to this project are documented here. The format follows
   `workspace_models()`, `grantable_providers()`, `attachable_policies()` and
   workspace `model_groups()`.
 
+- Workspaces by name: every `ws_id` argument accepts a workspace's id, its
+  unique name, or its record; `resolve_workspace()` does the lookup (cached,
+  refreshed on a miss; org admins and members alike). An unknown name raises
+  `LookupError`.
+
 ### Changed
 
 - `workspace_analytics()` takes an optional date window.

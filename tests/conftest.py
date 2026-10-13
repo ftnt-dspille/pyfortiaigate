@@ -139,6 +139,8 @@ def fake() -> Iterator[FakeFaig]:
 def faig(fake: FakeFaig) -> Iterator[FortiAIGate]:
     """An admin client against the fake; retries never sleep."""
     c = FortiAIGate(fake.url, "admin", "pw")
+    # Short test ids ("w1") are not UUIDs; seed them so no name lookup happens.
+    c._ws_ids.update({f"w{i}": f"w{i}" for i in range(10)})
     yield c
     c._opener.close()
 

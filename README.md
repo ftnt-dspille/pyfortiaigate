@@ -13,11 +13,10 @@ pip install pyfortiaigate
 from pyfortiaigate import FortiAIGate, approve_new, regex_detector_body
 
 with FortiAIGate("https://faig.example.com", "admin", "<password>") as faig:
-    ws = faig.workspace_by_name("team-a")
-    det = faig.create_detector(
-        ws["id"], regex_detector_body("no-ssn", [("ssn", r"\d{3}-\d{2}-\d{4}", "block")])
+    det = faig.create_detector(  # a workspace by name, id or record
+        "team-a", regex_detector_body("no-ssn", [("ssn", r"\d{3}-\d{2}-\d{4}", "block")])
     )
-    approve_new(faig, ws["id"], "detectors", det)  # draft -> pending -> active
+    approve_new(faig, "team-a", "detectors", det)  # draft -> pending -> active
 ```
 
 ## What it handles for you

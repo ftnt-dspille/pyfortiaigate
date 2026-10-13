@@ -34,19 +34,19 @@ def ws(live: FortiAIGate) -> str:
 @pytest.mark.parametrize("scope", ["org", "workspace"])
 def test_usage_and_cost_reports(live: FortiAIGate, ws: str, scope: str) -> None:
     w = ws if scope == "workspace" else None
-    assert {"window", "totals"} <= live.usage_summary(workspace_id=w).keys()
-    assert "chargebackSpend" in live.cost_summary(workspace_id=w)["totals"]
-    assert live.usage_trend(interval="daily", workspace_id=w)["interval"] == "daily"
-    assert isinstance(live.cost_trend(interval="weekly", workspace_id=w)["points"], list)
+    assert {"window", "totals"} <= live.usage_summary(ws_id=w).keys()
+    assert "chargebackSpend" in live.cost_summary(ws_id=w)["totals"]
+    assert live.usage_trend(interval="daily", ws_id=w)["interval"] == "daily"
+    assert isinstance(live.cost_trend(interval="weekly", ws_id=w)["points"], list)
     for by in ("key", "user", "model") + (("workspace",) if w is None else ()):
-        ranks = live.usage_rankings(by=by, limit=3, order_by="tokens", workspace_id=w)
+        ranks = live.usage_rankings(by=by, limit=3, order_by="tokens", ws_id=w)
         assert "meta" in ranks  # no items at all when nothing was used in the window
         assert len(rank_items(ranks)) <= 3
-        costs = live.cost_rankings(by=by, limit=3, workspace_id=w)
+        costs = live.cost_rankings(by=by, limit=3, ws_id=w)
         assert len(rank_items(costs)) <= 3
-    both = live.usage_rankings(by="key", limit=2, end="both", workspace_id=w)
+    both = live.usage_rankings(by="key", limit=2, end="both", ws_id=w)
     assert isinstance(rank_items(both, "bottom"), list)
-    assert {"summary", "detectors", "violations"} <= live.analytics(limit=3, workspace_id=w).keys()
+    assert {"summary", "detectors", "violations"} <= live.analytics(limit=3, ws_id=w).keys()
 
 
 @pytest.mark.parametrize("by", ["key", "user", "model"])
@@ -55,19 +55,17 @@ def test_breakdown_of_the_top_item(live: FortiAIGate, ws: str, scope: str, by: s
     w = ws if scope == "workspace" else None
     # Rankings keep deleted keys (deleted: true); their breakdown is a 404.
     top = [
-        r
-        for r in rank_items(live.usage_rankings(by=by, limit=10, workspace_id=w))
-        if not r.get("deleted")
+        r for r in rank_items(live.usage_rankings(by=by, limit=10, ws_id=w)) if not r.get("deleted")
     ]
     if not top:
         pytest.skip(f"no live {by} with usage in the {scope} window")
     # A key, user or workspace splits by model; a model by who used it.
-    usage = live.usage_breakdown(by, top[0]["id"], workspace_id=w)
+    usage = live.usage_breakdown(by, top[0]["id"], ws_id=w)
     assert {"tokens", "requests"} <= usage["total"].keys()
     rows = breakdown_items(usage)
     assert rows
     assert {"name", "tokens", "requests"} <= rows[0].keys()
-    cost = live.cost_breakdown(by, top[0]["id"], workspace_id=w)
+    cost = live.cost_breakdown(by, top[0]["id"], ws_id=w)
     assert "amount" in cost["total"]["chargebackSpend"]
     spend = breakdown_items(cost)
     assert spend
@@ -107,7 +105,7 @@ def test_traffic_log_filters_really_filter(live: FortiAIGate) -> None:
 
 
 def test_workspace_traffic_logs(live: FortiAIGate, ws: str) -> None:
-    rows = list(live.traffic_logs(range="all", max_items=2, workspace_id=ws))
+    rows = list(live.traffic_logs(range="all", max_items=2, ws_id=ws))
     for r in rows:
         assert live.traffic_log(r["uuid"], ws)["uuid"] == r["uuid"]
 
@@ -179,5 +177,17 @@ def test_contains_and_does_not_contain(live: FortiAIGate) -> None:
 
 
 def test_workspace_traffic_filter_options(live: FortiAIGate, ws: str) -> None:
-    opts = live.traffic_log_filter_options(range="all", workspace_id=ws)
+    opts = live.traffic_log_filter_options(range="all", ws_id=ws)
     assert {"model", "verdict", "virtualKey"} <= opts.keys()
+
+
+def test_workspace_by_name_id_or_record_is_the_same(live: FortiAIGate, ws: str) -> None:
+    record = next(w for w in live.workspaces() if w["id"] == ws)
+    name = record["workspaceName"]
+    assert live.resolve_workspace(name) == ws
+    by_id = {g["id"] for g in live.guardrails(ws)}
+    assert {g["id"] for g in live.guardrails(name)} == by_id
+    assert {g["id"] for g in live.guardrails(record)} == by_id
+    assert live.cost_summary(ws_id=name)["totals"] == live.cost_summary(ws_id=ws)["totals"]
+    with pytest.raises(LookupError):
+        live.guardrails("pytest-no-such-workspace")

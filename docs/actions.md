@@ -32,8 +32,14 @@ the decoded JSON response.
 
 ## Workspaces
 
+Every method that takes a workspace (`ws_id`) accepts its **id**, its **name**
+(names are unique), or its **record** from `workspaces()` / `workspace_by_name()`.
+Names are resolved once and cached; an unknown name raises `LookupError`.
+
+
 | Method | HTTP | Notes |
 |---|---|---|
+| `resolve_workspace(ws)` | `GET /api/v1/admin/workspaces` (or `/api/v1/me/workspaces`) | A workspace's id from its id, name or record; cached. |
 | `workspaces()` | `GET /api/v1/admin/workspaces` | Every workspace (org admin). |
 | `my_workspaces()` | `GET /api/v1/me/workspaces` | Workspaces the caller belongs to. |
 | `workspace_by_name(name)` | `GET /api/v1/admin/workspaces` | |
@@ -42,7 +48,7 @@ the decoded JSON response.
 | `workspace(ws_id)` | `GET /api/v1/workspaces/{ws}` | Settings: `allowedModels`, `allowedPolicies`, budgets, member defaults. |
 | `workspace_members(ws_id)` | `GET /api/v1/workspaces/{ws}/members` | |
 | `workspace_budget(ws_id)` | `GET /api/v1/workspaces/{ws}/budget` | |
-| `workspace_analytics(ws_id, frm, to, limit)` | `GET /api/v1/workspaces/{ws}/analytics` | Same as `analytics(..., workspace_id=)`. |
+| `workspace_analytics(ws_id, frm, to, limit)` | `GET /api/v1/workspaces/{ws}/analytics` | Same as `analytics(..., ws_id=)`. |
 
 ## Detectors
 
@@ -120,7 +126,7 @@ See also [`approve_new`](reference/helpers.md#pyfortiaigate.approve_new).
 ## Usage, cost & analytics
 
 Dates are `date` objects or `"YYYY-MM-DD"`; omitted, the window is the last 30
-days. `workspace_id=` switches every call to the workspace path. Values are
+days. `ws_id=` switches every call to the workspace path. Values are
 checked before sending: `by` workspace | user | key | model; `interval` hourly |
 daily | weekly | monthly; `end` top | bottom | both. Read ranking rows with
 `rank_items(result, end)`: the API answers `items`, `top`/`bottom` lists, or
@@ -128,15 +134,15 @@ only `meta` when nothing was used.
 
 | Method | HTTP | Notes |
 |---|---|---|
-| `usage_summary(frm, to, workspace_id=)` | `GET .../usage/summary` | Requests, tokens, previous window, key/user adoption. |
-| `usage_trend(frm, to, interval, workspace_id=)` | `GET .../usage/trend` | `points: [{at, requests, tokens}]`. |
-| `usage_rankings(frm, to, by, limit, end=, order_by=, interval=, workspace_id=)` | `GET .../usage/rankings` | `order_by`: tokens \| requests. |
-| `usage_breakdown(by, item_id, frm, to, workspace_id=)` | `GET .../usage/breakdown` | A key/user/workspace by model; a model by who used it. Rows: `breakdown_items()`. 404 for a deleted key. |
-| `cost_summary(frm, to, workspace_id=)` | `GET .../cost/summary` | `totals.chargebackSpend`, volume, unit costs. |
-| `cost_trend(frm, to, interval, workspace_id=)` | `GET .../cost/trend` | |
-| `cost_rankings(frm, to, by, limit, end=, order_by=, interval=, workspace_id=)` | `GET .../cost/rankings` | `order_by`: providerSpend \| chargebackSpend \| per1kTokens \| perRequest. |
-| `cost_breakdown(by, item_id, frm, to, workspace_id=)` | `GET .../cost/breakdown` | As `usage_breakdown`, with spend. Rows: `breakdown_items()`. |
-| `analytics(frm, to, limit, workspace_id=)` | `GET /api/v1/admin/analytics` or `.../workspaces/{ws}/analytics` | Guardrail violations, severity, trend, scanner latency. |
+| `usage_summary(frm, to, ws_id=)` | `GET .../usage/summary` | Requests, tokens, previous window, key/user adoption. |
+| `usage_trend(frm, to, interval, ws_id=)` | `GET .../usage/trend` | `points: [{at, requests, tokens}]`. |
+| `usage_rankings(frm, to, by, limit, end=, order_by=, interval=, ws_id=)` | `GET .../usage/rankings` | `order_by`: tokens \| requests. |
+| `usage_breakdown(by, item_id, frm, to, ws_id=)` | `GET .../usage/breakdown` | A key/user/workspace by model; a model by who used it. Rows: `breakdown_items()`. 404 for a deleted key. |
+| `cost_summary(frm, to, ws_id=)` | `GET .../cost/summary` | `totals.chargebackSpend`, volume, unit costs. |
+| `cost_trend(frm, to, interval, ws_id=)` | `GET .../cost/trend` | |
+| `cost_rankings(frm, to, by, limit, end=, order_by=, interval=, ws_id=)` | `GET .../cost/rankings` | `order_by`: providerSpend \| chargebackSpend \| per1kTokens \| perRequest. |
+| `cost_breakdown(by, item_id, frm, to, ws_id=)` | `GET .../cost/breakdown` | As `usage_breakdown`, with spend. Rows: `breakdown_items()`. |
+| `analytics(frm, to, limit, ws_id=)` | `GET /api/v1/admin/analytics` or `.../workspaces/{ws}/analytics` | Guardrail violations, severity, trend, scanner latency. |
 
 ## Traffic & ICAP logs
 
@@ -148,13 +154,13 @@ them and return every row.
 
 | Method | HTTP | Notes |
 |---|---|---|
-| `traffic_logs(range=, start=, end=, filters=, max_items=, page_size=, workspace_id=)` | `GET .../traffic-logs` | Iterator; follows `nextCursor`. Filters: verdict, user, workspace, virtual_key, model, traffic_type, request_path. |
+| `traffic_logs(range=, start=, end=, filters=, max_items=, page_size=, ws_id=)` | `GET .../traffic-logs` | Iterator; follows `nextCursor`. Filters: verdict, user, workspace, virtual_key, model, traffic_type, request_path. |
 | `traffic_logs_page(cursor, ...)` | `GET .../traffic-logs` | One page with `nextCursor`, `hasNext`, `total` (first page). |
-| `traffic_log(uuid, workspace_id=)` | `GET .../traffic-logs/{uuid}` | Full record: verdict, action, detector, guardrail, policy, prompt, cost, latency. |
-| `traffic_log_filter_options(range=, start=, end=, workspace_id=)` | `GET .../traffic-logs/filter-options` | Values each filter can take. |
+| `traffic_log(uuid, ws_id=)` | `GET .../traffic-logs/{uuid}` | Full record: verdict, action, detector, guardrail, policy, prompt, cost, latency. |
+| `traffic_log_filter_options(range=, start=, end=, ws_id=)` | `GET .../traffic-logs/filter-options` | Values each filter can take. |
 | `icap_logs(...)` | `GET .../icap-logs` | Iterator (offset paging). Filters: verdict, direction, user, application, fortigate, shadow_ai, inspection. 404 when ICAP is off. |
 | `icap_logs_page(offset, ...)` | `GET .../icap-logs` | |
-| `icap_log(uuid, workspace_id=)` | `GET .../icap-logs/{uuid}` | |
+| `icap_log(uuid, ws_id=)` | `GET .../icap-logs/{uuid}` | |
 | `icap_log_filter_options(...)` | `GET .../icap-logs/filter-options` | |
 
 ## Providers & audit

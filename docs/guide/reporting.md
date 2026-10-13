@@ -8,11 +8,11 @@ Instead of looking up every request's log record, ask the cost API:
 import datetime as dt
 
 today = dt.date.today()
-spend = faig.cost_summary(today, today, workspace_id=ws_id)
+spend = faig.cost_summary(today, today, ws_id=ws_id)
 print(spend["totals"]["chargebackSpend"], spend["volume"])
 
 # Who or what spent it
-for row in rank_items(faig.cost_rankings(today, today, by="key", limit=10, workspace_id=ws_id)):
+for row in rank_items(faig.cost_rankings(today, today, by="key", limit=10, ws_id=ws_id)):
     print(row["name"], row["chargebackSpend"])
 ```
 

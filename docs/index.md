@@ -32,20 +32,18 @@ from pyfortiaigate import (
 )
 
 with FortiAIGate("https://faig.example.com", "admin", "<password>") as faig:
-    ws = faig.workspace_by_name("team-a")
-
     # A detector, then a guardrail and policy that use it
     det = faig.create_detector(
-        ws["id"], regex_detector_body("no-ssn", [("ssn", r"\d{3}-\d{2}-\d{4}", "block")])
+        "team-a", regex_detector_body("no-ssn", [("ssn", r"\d{3}-\d{2}-\d{4}", "block")])
     )
-    approve_new(faig, ws["id"], "detectors", det)
-    g = faig.create_guardrail(ws["id"], "pii", [det["uuid"]])
-    approve_new(faig, ws["id"], "guardrails", g)
-    p = faig.create_policy(ws["id"], "pii-policy", [g["id"]], [g["id"]])
-    approve_new(faig, ws["id"], "policies", p)
+    approve_new(faig, "team-a", "detectors", det)
+    g = faig.create_guardrail("team-a", "pii", [det["uuid"]])
+    approve_new(faig, "team-a", "guardrails", g)
+    p = faig.create_policy("team-a", "pii-policy", [g["id"]], [g["id"]])
+    approve_new(faig, "team-a", "policies", p)
 
     # A virtual key bound to the policy, used on the gateway
-    key = faig.create_virtual_key(ws["id"], "app", policy_ids=[p["id"]], provider_ids=["openai"])
+    key = faig.create_virtual_key("team-a", "app", policy_ids=[p["id"]], provider_ids=["openai"])
     secret = secret_from_response(key)
     reply = faig.chat_completion(
         secret, "gpt-4o-mini", [{"role": "user", "content": "My SSN is 123-45-6789"}]
@@ -53,7 +51,8 @@ with FortiAIGate("https://faig.example.com", "admin", "<password>") as faig:
     print("blocked" if blocked(reply) else reply["choices"][0]["message"]["content"])
 ```
 
-Every method and the call it makes: [Actions](actions.md).
+Workspaces can be named directly: every `ws_id` argument takes a workspace's
+name, id or record. Every method and the call it makes: [Actions](actions.md).
 
 ## Configuration from the environment
 

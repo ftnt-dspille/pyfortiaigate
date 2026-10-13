@@ -45,13 +45,13 @@ REPORTS: list[tuple[Callable[[FortiAIGate], Any], str, dict[str, str]]] = [
         {**WIN, "by": "model", "limit": "3", "end": "bottom", "orderBy": "requests"},
     ),
     (
-        lambda c: c.usage_breakdown("key", "k1", FRM, TO, workspace_id="w1"),
+        lambda c: c.usage_breakdown("key", "k1", FRM, TO, ws_id="w1"),
         "/api/v1/workspaces/w1/usage/breakdown",
         {**WIN, "by": "key", "id": "k1"},
     ),
     (lambda c: c.cost_summary(FRM, TO), "/api/v1/admin/cost/summary", WIN),
     (
-        lambda c: c.cost_trend(FRM, TO, "monthly", workspace_id="w1"),
+        lambda c: c.cost_trend(FRM, TO, "monthly", ws_id="w1"),
         "/api/v1/workspaces/w1/cost/trend",
         {**WIN, "interval": "monthly"},
     ),
@@ -167,7 +167,7 @@ def test_traffic_log_filters_and_custom_window(faig: FortiAIGate, fake: FakeFaig
             "virtual_key": {"operator": "contains", "value": "student"},
             "user": None,
         },
-        workspace_id="w1",
+        ws_id="w1",
     )
     s = one(fake)
     assert s.path == "/api/v1/workspaces/w1/traffic-logs"
@@ -229,7 +229,7 @@ def test_icap_logs_stop_on_an_empty_page_and_max_items(faig: FortiAIGate, fake: 
     fake.answer("GET", "/api/v1/admin/icap-logs", (200, {"items": []}))
     assert list(faig.icap_logs()) == []
     fake.answer("GET", "/api/v1/workspaces/w1/icap-logs", (200, {"items": [{"uuid": "a"}] * 3}))
-    assert len(list(faig.icap_logs(max_items=2, workspace_id="w1"))) == 2
+    assert len(list(faig.icap_logs(max_items=2, ws_id="w1"))) == 2
 
 
 def test_icap_log_filters_use_the_icap_fields(faig: FortiAIGate) -> None:
@@ -242,7 +242,7 @@ def test_icap_detail_and_filter_options(faig: FortiAIGate, fake: FakeFaig) -> No
     assert faig.icap_log("u1") == {"uuid": "u1"}
     fake.answer("GET", "/api/v1/admin/icap-logs/u2", (200, None))
     assert faig.icap_log("u2") == {}
-    faig.icap_log_filter_options(workspace_id="w1", range="all")
+    faig.icap_log_filter_options(ws_id="w1", range="all")
     assert fake.calls("GET", "/api/v1/workspaces/w1/icap-logs/filter-options")
 
 
