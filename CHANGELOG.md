@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-13
+
 ### Added
 
 - Every method now declares what it returns: about 80 `TypedDict` response
