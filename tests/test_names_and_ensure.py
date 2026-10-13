@@ -119,18 +119,28 @@ def test_test_guardrail_by_names(faig: FortiAIGate, fake: FakeFaig) -> None:
     assert fake.calls("POST", f"{WS}/guardrails/test")[0].body["detectorIds"] == ["d1"]
 
 
-def test_approve_by_name_from_the_review_queue(faig: FortiAIGate, fake: FakeFaig) -> None:
-    queue = [
-        {"id": "g1", "name": "gr", "type": "guardrail"},
-        {"id": "p1", "name": "gr", "type": "policy"},
-    ]
-    fake.answer("GET", "/api/v1/admin/review-queue", (200, queue))
-    faig.approve("guardrails", "gr")
-    faig.reject("policies", "gr", "no")
+def test_approve_by_name_needs_the_workspace(faig: FortiAIGate, fake: FakeFaig) -> None:
+    fake.answer("GET", f"{WS}/guardrails", (200, [{"id": "g1", "name": "gr"}]))
+    fake.answer("GET", f"{WS}/policies", (200, [{"id": "p1", "name": "gr"}]))
+    faig.approve("guardrails", "gr", "w1")
+    faig.reject("policies", "gr", "no", ws_id="w1")
+    faig.approve("guardrails", {"id": "g2"})
     assert fake.calls("POST", "/api/v1/admin/guardrails/g1/approve")
+    assert fake.calls("POST", "/api/v1/admin/guardrails/g2/approve")
     assert fake.calls("POST", "/api/v1/admin/policies/p1/reject")[0].body == {"reason": "no"}
-    with pytest.raises(LookupError, match="0 detectors named 'gr' in the review queue"):
+    with pytest.raises(ValueError, match="by name needs ws_id"):
         faig.approve("detectors", "gr")
+    assert not fake.calls("GET", "/api/v1/admin/review-queue")
+
+
+def test_custom_detector_shadowing_a_builtin_is_ambiguous(
+    faig: FortiAIGate, fake: FakeFaig
+) -> None:
+    fake.answer("GET", f"{WS}/detectors", (200, [{"uuid": "d1", "name": "pii"}]))
+    fake.answer("GET", "/api/v1/admin/built-in-detectors", (200, [{"id": "pii", "name": "PII"}]))
+    with pytest.raises(ValueError, match="names both a custom and a built-in detector"):
+        faig.resolve_detector("pii", "w1")
+    assert faig.resolve_detector({"id": "pii"}, "w1") == "pii"
 
 
 def test_submit_rejects_an_unknown_kind(faig: FortiAIGate) -> None:

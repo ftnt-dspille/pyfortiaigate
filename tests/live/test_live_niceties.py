@@ -220,11 +220,11 @@ def test_iter_audit_logs_sees_our_creates(faig: FortiAIGate, state: dict[str, An
     assert any(RUN in r.get("message", "") for r in rows), "our creates are not in the audit log"
 
 
-def test_approve_by_name_from_the_review_queue(faig: FortiAIGate, ws: str) -> None:
+def test_approve_by_name(faig: FortiAIGate, ws: str) -> None:
     body = regex_detector_body(f"{RUN}-queued", [("x", r"QQQ-\d+", "block")])
     faig.create_detector(ws, body)
     faig.submit(ws, "detectors", f"{RUN}-queued")
-    faig.approve("detectors", f"{RUN}-queued")  # no ws_id: found in the review queue
+    faig.approve("detectors", f"{RUN}-queued", ws)
     live = faig.detector_by_name(ws, f"{RUN}-queued")
     assert live
     assert live["approvalStatus"] == "active"

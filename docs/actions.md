@@ -8,7 +8,8 @@ the decoded JSON response.
 key argument takes its id, its name, or its record. Detector, guardrail and
 policy names are unique in a workspace (8.0.2 refuses a duplicate with 409), so
 a name is looked up in the method's `ws_id` (org-wide without one). A detector
-name may also be a built-in detector's name or slug. Key names are NOT unique:
+name may also be a built-in detector's name or slug (a custom detector sharing
+one is refused as ambiguous). Key names are NOT unique:
 two keys with one name raise `ValueError`; a key can also be given by its
 `faig_...` secret. An unknown name raises `LookupError`.
 
@@ -106,7 +107,7 @@ Names are resolved once and cached; an unknown name raises `LookupError`.
 |---|---|---|
 | `submit(ws_id, kind, obj_id)` | `POST /api/v1/workspaces/{ws}/{kind}/{id}/submit` | `kind`: `detectors`, `guardrails`, `policies`. |
 | `withdraw(ws_id, kind, obj_id)` | `DELETE /api/v1/workspaces/{ws}/{kind}/{id}/pending` | Cancel a pending submission or change. |
-| `approve(kind, obj_id, ws_id=None)` | `POST /api/v1/admin/{kind}/{id}/approve` | By name: looked up in `ws_id`, or else in the review queue. |
+| `approve(kind, obj_id, ws_id=None)` | `POST /api/v1/admin/{kind}/{id}/approve` | By name only with `ws_id` (a name can be pending in several workspaces). |
 | `reject(kind, obj_id, reason, ws_id=None)` | `POST /api/v1/admin/{kind}/{id}/reject` | As `approve`. |
 | `review_queue()` | `GET /api/v1/admin/review-queue` | Map an item's `type` with `QUEUE_KIND`. |
 

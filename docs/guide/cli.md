@@ -4,9 +4,11 @@ Installing the package adds a `pyfortiaigate` command (also
 `python -m pyfortiaigate`) for quick looks without writing a script. Everything
 is read-only except `chat`, which sends one prompt through the gateway.
 
-Settings come from the same `FAIG_*` variables as `FortiAIGate.from_env()`. A
-`.env` file in the current directory fills in what the shell does not set
-(`--env-file` picks another).
+Settings come from the same `FAIG_*` variables as `FortiAIGate.from_env()`.
+`--env-file .env` reads a settings file; its `FAIG_*` lines fill in what the
+shell does not set (other lines are ignored). No file is read unless you name
+one, so a stray `.env` cannot point your credentials at another server. An
+alias keeps it short: `alias faig='pyfortiaigate --env-file ~/faig.env'`.
 
 ```bash
 pyfortiaigate whoami

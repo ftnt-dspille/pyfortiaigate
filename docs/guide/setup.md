@@ -9,7 +9,7 @@ key takes its **id**, its **name**, or the **record** you already hold:
 faig.create_guardrail("team-a", "pii", ["no-ssn", "prompt-injection"])
 faig.create_policy("team-a", "pii-policy", ["pii"], ["pii"], provider_ids=["openai"])
 faig.create_virtual_key("team-a", "student04", policy_ids=["pii-policy"])
-faig.approve("guardrails", "pii")          # found in the review queue
+faig.approve("guardrails", "pii", ws_id="team-a")
 faig.revoke_virtual_key("student04", ws_id="team-a")
 ```
 
@@ -17,7 +17,9 @@ A name is looked up in the method's workspace (`ws_id`), or org-wide when the
 method has none. FortiAIGate refuses a second detector, guardrail or policy
 with the same name in a workspace (409), so those names are unambiguous. A
 detector name can also be a built-in detector's name or slug
-(`"prompt-injection"`).
+(`"prompt-injection"`); a custom detector that shares a built-in's name or slug
+is refused as ambiguous, so pass its uuid. Approving or rejecting by name needs
+`ws_id`: the same name can be pending in several workspaces.
 
 **Virtual key names are not unique.** If two keys share a name, the lookup
 raises `ValueError` and you pass the id. A key can also be named by its

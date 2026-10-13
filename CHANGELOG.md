@@ -35,8 +35,9 @@ All notable changes to this project are documented here. The format follows
 - Detectors, guardrails, policies and virtual keys by name too, everywhere one
   is taken (including the detector list of a guardrail, a policy's guardrails
   and a key's policies). A detector name may be a built-in's name or slug; a
-  key may also be given by its `faig_...` secret. `approve`/`reject` find a
-  name in the review queue. `resolve_detector/guardrail/policy/virtual_key()`.
+  key may also be given by its `faig_...` secret; `approve`/`reject` take a
+  name with `ws_id`. A custom detector that shares a built-in's name or slug is
+  refused as ambiguous. `resolve_detector/guardrail/policy/virtual_key()`.
 - Re-runnable setup: `ensure_detector`, `ensure_guardrail`, `ensure_policy` and
   `ensure_virtual_key` create what is missing, update what differs, approve it,
   and leave a match alone; they return `Ensured(record, action, secret)`.
@@ -56,7 +57,8 @@ All notable changes to this project are documented here. The format follows
   that return them, for editor completion. Records are still plain dicts.
 - A `pyfortiaigate` command (`python -m pyfortiaigate`): workspaces, objects,
   keys, models, usage and cost, traffic and audit logs, guardrail scans and a
-  test chat, as tables or `--json`. Reads `FAIG_*` and a local `.env`.
+  test chat, as tables or `--json`. Reads `FAIG_*` from the environment, or
+  from a settings file only when `--env-file` names one.
 - `pyfortiaigate.__version__`.
 - `create_guardrail`/`update_guardrail` take `deny_suspicious_characters`;
   `update_virtual_key` takes `provider_ids`.

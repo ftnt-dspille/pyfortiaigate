@@ -949,9 +949,19 @@ class FortiAIGate:
             records = self.virtual_keys(ws_id)
         field = "keyName" if kind == "virtual-keys" else "name"
         found = {str(r.get("uuid") or r.get("id")) for r in records if r.get(field) == ref}
-        if not found and kind == "detectors":
+        if kind == "detectors":
             # A built-in detector's id is a slug ("prompt-injection"), not a UUID.
-            found = {str(b["id"]) for b in self._builtins() if ref in (b.get("id"), b.get("name"))}
+            # A custom detector may carry a built-in's name or slug: refuse to
+            # guess which one is meant.
+            builtin = {
+                str(b["id"]) for b in self._builtins() if ref in (b.get("id"), b.get("name"))
+            }
+            if found and builtin:
+                raise ValueError(
+                    f"{ref!r} names both a custom and a built-in detector; pass the custom"
+                    f" detector's uuid, or {{'id': {next(iter(builtin))!r}}} for the built-in"
+                )
+            found = found or builtin
         where = "this account" if ws_id is None else f"workspace {ws_id!r}"
         if not found:
             raise LookupError(f"no {_SINGULAR[kind]} named {ref!r} in {where}")
@@ -1342,24 +1352,17 @@ class FortiAIGate:
         return self.delete(f"/api/v1/workspaces/{self._ws(ws_id)}/{kind}/{oid}/pending")
 
     def _queued(self, kind: str, obj_id: Ref, ws_id: WsRef | None) -> str:
-        """An id for approve/reject: a name is looked up in the workspace, or
-        (no ``ws_id``) among the review queue's items of that kind."""
-        if ws_id is not None or isinstance(obj_id, Mapping) or _UUID.match(obj_id):
-            return self._resolve(_kind(kind), obj_id, ws_id)
-        found = {
-            str(q.get("id") or q.get("uuid"))
-            for q in self.review_queue()
-            if q.get("name") == obj_id and QUEUE_KIND.get(str(q.get("type"))) == kind
-        }
-        if len(found) != 1:
-            raise LookupError(
-                f"{len(found)} {kind} named {obj_id!r} in the review queue; pass ws_id or the id"
-            )
-        return found.pop()
+        """An id for approve/reject. A name is looked up ONLY in ``ws_id``: the
+        same name can be pending in several workspaces, and approving another
+        workspace's object by mistake is not undoable."""
+        if isinstance(obj_id, Mapping) or _UUID.match(obj_id):
+            return self._resolve(_kind(kind), obj_id, None)
+        if ws_id is None:
+            raise ValueError(f"approving or rejecting {obj_id!r} by name needs ws_id")
+        return self._resolve(_kind(kind), obj_id, ws_id)
 
     def approve(self, kind: str, obj_id: Ref, ws_id: WsRef | None = None) -> JSON:
-        """Approve a submitted object. By name, it is found in ``ws_id`` or else
-        in the review queue."""
+        """Approve a submitted object, by id, record, or (with ``ws_id``) name."""
         return self.post(f"/api/v1/admin/{kind}/{_q(self._queued(kind, obj_id, ws_id))}/approve")
 
     def reject(

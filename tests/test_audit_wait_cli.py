@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
@@ -252,17 +253,39 @@ def test_cli_reads_env_file_and_insecure(
     tmp_path: Path,
 ) -> None:
     monkeypatch.delenv("FAIG_URL")
+    monkeypatch.delenv("PATH_FROM_FILE", raising=False)
     env = tmp_path / "lab.env"
-    env.write_text(f"# settings\nexport FAIG_URL='{cli_env.url}'\nFAIG_USERNAME=other\nJUNK\n")
+    env.write_text(
+        f"# settings\nexport FAIG_URL='{cli_env.url}'\nFAIG_USERNAME=other\n"
+        "PATH_FROM_FILE=x\nJUNK\n"
+    )
     cli_env.answer("GET", "/api/v1/user", (200, {"ok": True}))
     code, _, _ = run(capsys, "--env-file", str(env), "--insecure", "whoami")
     assert code == 0
     login = cli_env.calls("POST", "/api/v1/login")[0]
     assert login.body["username"] == "admin"  # the shell wins over the file
+    assert "PATH_FROM_FILE" not in os.environ  # only FAIG_* keys are read
+
+
+def test_cli_ignores_a_dotenv_it_was_not_given(
+    cli_env: FakeFaig, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("FAIG_URL")
+    Path(".env").write_text("FAIG_URL=https://elsewhere.example.com\n")
+    code, _, err = run(capsys, "whoami")
+    assert code == 2
+    assert "set FAIG_URL" in err
+
+
+def test_cli_missing_env_file(cli_env: FakeFaig, capsys: pytest.CaptureFixture[str]) -> None:
+    code, _, err = run(capsys, "--env-file", "absent.env", "whoami")
+    assert code == 2
+    assert "no settings file absent.env" in err
 
 
 def test_load_env_missing_file(tmp_path: Path) -> None:
-    load_env(tmp_path / "absent.env")  # no error
+    with pytest.raises(FileNotFoundError):
+        load_env(tmp_path / "absent.env")
 
 
 def test_table_formats_values() -> None:
