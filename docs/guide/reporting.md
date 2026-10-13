@@ -90,6 +90,14 @@ det = faig.create_detector(ws_id, body)
 faig.submit(ws_id, "detectors", det["uuid"])  # or approve_new() as org admin
 ```
 
+Testing without an LLM call:
+
+| What | Call |
+|---|---|
+| An unsaved detector body | `playground(text, body, ws_id)` |
+| A saved detector | `test_detector(ws_id, uuid, text)` |
+| A guardrail (saved, or a list of detector ids) | `test_guardrail(text, guardrail_id=..., ws_id=...)` |
+
 Each rule is `(name, violate_if, exempt_if)`; the builder fills both the
 editor's `aiRules` and the flat `rules` list the engine evaluates.
 `withdraw(ws_id, kind, id)` cancels a pending submission.

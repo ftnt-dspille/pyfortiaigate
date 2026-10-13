@@ -626,6 +626,8 @@ class FortiAIGate:
         return self.post("/api/v1/admin/detectors/test", payload)
 
     def test_detector(self, ws_id: str, uuid: str, text: str) -> JSON:
+        """Scan text with a SAVED detector: ``matched``, ``finalDisposition``,
+        ``score``, ``spans``. For an unsaved body use ``playground``."""
         return self.post(
             f"/api/v1/workspaces/{_q(ws_id)}/detectors/{_q(uuid)}/test", {"input": text}
         )
@@ -637,8 +639,12 @@ class FortiAIGate:
             return self._list(f"/api/v1/workspaces/{_q(ws_id)}/guardrails")
         return self._list("/api/v1/admin/guardrails")
 
-    def guardrail(self, gid: str) -> dict[str, Any]:
-        data = self.get(f"/api/v1/admin/guardrails/{_q(gid)}")
+    def guardrail(self, gid: str, ws_id: str | None = None) -> dict[str, Any]:
+        """One guardrail, by the workspace path (``ws_id``) or the org-admin path."""
+        if ws_id:
+            data = self.get(f"/api/v1/workspaces/{_q(ws_id)}/guardrails/{_q(gid)}")
+        else:
+            data = self.get(f"/api/v1/admin/guardrails/{_q(gid)}")
         return dict(data.get("guardrail", data)) if isinstance(data, dict) else {}
 
     def guardrail_by_name(self, ws_id: str | None, name: str) -> dict[str, Any] | None:
@@ -673,20 +679,28 @@ class FortiAIGate:
         *,
         guardrail_id: str | None = None,
         deny_suspicious_characters: bool = False,
+        ws_id: str | None = None,
     ) -> JSON:
-        """Scan text with detectors (no LLM involved). Pass ``detector_ids``, or
-        ``guardrail_id`` to reuse a guardrail's detectors and its
-        denySuspiciousCharacters setting."""
+        """Scan text through a guardrail without an LLM (the console's guardrail
+        tester). Pass ``detector_ids``, or ``guardrail_id`` to reuse a saved
+        guardrail's detectors and its denySuspiciousCharacters setting.
+        ``ws_id`` uses the workspace path, which a workspace member can call.
+        Returns ``finalDisposition`` plus a ``results`` row per detector."""
         if not detector_ids and not guardrail_id:
             raise ValueError("detector_ids or guardrail_id is required")
         if guardrail_id and not detector_ids:
-            g = self.guardrail(guardrail_id)
+            g = self.guardrail(guardrail_id, ws_id)
             detector_ids = list(g.get("detectorIds") or [])
             deny_suspicious_characters = bool(
                 g.get("denySuspiciousCharacters", deny_suspicious_characters)
             )
+        path = (
+            f"/api/v1/workspaces/{_q(ws_id)}/guardrails/test"
+            if ws_id
+            else "/api/v1/admin/guardrails/test"
+        )
         return self.post(
-            "/api/v1/admin/guardrails/test",
+            path,
             {
                 "input": text,
                 "detectorIds": detector_ids,

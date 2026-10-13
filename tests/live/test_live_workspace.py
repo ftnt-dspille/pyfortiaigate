@@ -146,6 +146,30 @@ def test_guardrail_and_policy_then_update_policy(
     faig.update_policy(ws, p["id"], f"{RUN}-pol", [g["id"]], [g["id"]], provider_ids=["openai"])
 
 
+@pytest.mark.parametrize("path", ["workspace", "org"])
+def test_guardrail_tester(faig: FortiAIGate, ws: str, state: dict[str, Any], path: str) -> None:
+    """The console's guardrail tester, by guardrail id and by detector ids."""
+    need(state, "gr", "det")
+    w = ws if path == "workspace" else None
+    hit = faig.test_guardrail("the code is ZEBRA-1234", guardrail_id=state["gr"], ws_id=w)
+    miss = faig.test_guardrail("nothing here", guardrail_id=state["gr"], ws_id=w)
+    assert hit["finalDisposition"] == "block"
+    assert miss["finalDisposition"] != "block"
+    assert [r["detectorId"] for r in hit["results"]] == [state["det"]]
+    assert hit["results"][0]["matched"]
+    direct = faig.test_guardrail("ZEBRA-9999", [state["det"]], ws_id=w)
+    assert direct["finalDisposition"] == "block"
+
+
+def test_saved_detector_test(faig: FortiAIGate, ws: str, state: dict[str, Any]) -> None:
+    need(state, "det")
+    hit = faig.test_detector(ws, state["det"], "the code is ZEBRA-1234")
+    miss = faig.test_detector(ws, state["det"], "nothing here")
+    assert hit["matched"]
+    assert hit["spans"]
+    assert not miss["matched"]
+
+
 @pytest.mark.parametrize("kind", ["guardrails", "policies"])
 def test_withdraw_a_pending_submission(
     faig: FortiAIGate, ws: str, state: dict[str, Any], kind: str

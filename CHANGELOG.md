@@ -21,6 +21,8 @@ All notable changes to this project are documented here. The format follows
 - Workspace-path writes: `delete_detector(..., ws_id)`, `update_policy`,
   `withdraw` (cancel a pending submission), and `ws_id=` on every virtual-key
   call. `workspace()`.
+- `test_guardrail(..., ws_id=)` and `guardrail(gid, ws_id=)`: the guardrail tester on
+  the workspace path, usable by workspace members.
 - The Playground (`playground()`: test an unsaved detector body) and
   `ai_detector_body()` for Natural Language detectors.
 - What a key can call: `available_models()`, `can_use_model()`, plus `models()`,

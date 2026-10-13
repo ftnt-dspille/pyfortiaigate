@@ -405,3 +405,21 @@ def test_available_models_with_a_bad_key_raises(faig: FortiAIGate, fake: FakeFai
     fake.answer("GET", "/ai/openai/v1/models", (401, {"error": "invalid key"}))
     with pytest.raises(FaigError, match="invalid key"):
         faig.available_models("faig_bad")
+
+
+def test_workspace_guardrail_test_by_guardrail_id(faig: FortiAIGate, fake: FakeFaig) -> None:
+    fake.answer(
+        "GET",
+        "/api/v1/workspaces/w1/guardrails/g1",
+        (200, {"id": "g1", "detectorIds": ["d1"], "denySuspiciousCharacters": True}),
+    )
+    faig.test_guardrail("hi", guardrail_id="g1", ws_id="w1")
+    assert [c.key for c in fake.app_calls()] == [
+        ("GET", "/api/v1/workspaces/w1/guardrails/g1"),
+        ("POST", "/api/v1/workspaces/w1/guardrails/test"),
+    ]
+    assert fake.app_calls()[1].body == {
+        "input": "hi",
+        "detectorIds": ["d1"],
+        "denySuspiciousCharacters": True,
+    }

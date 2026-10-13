@@ -55,19 +55,19 @@ the decoded JSON response.
 | `update_detector(ws_id, uuid, body)` | `PUT /api/v1/workspaces/{ws}/detectors/{uuid}` | An active detector changes at once. |
 | `delete_detector(uuid, ws_id=None)` | `DELETE /api/v1/workspaces/{ws}/detectors/{uuid}` or `DELETE /api/v1/admin/detectors/{uuid}` | |
 | `playground(text, body, ws_id=None)` | `POST /api/v1/workspaces/{ws}/detectors/test` or `POST /api/v1/admin/detectors/test` | Scan text with an UNSAVED detector body (the console Playground). |
-| `test_detector(ws_id, uuid, text)` | `POST /api/v1/workspaces/{ws}/detectors/{uuid}/test` | |
+| `test_detector(ws_id, uuid, text)` | `POST /api/v1/workspaces/{ws}/detectors/{uuid}/test` | Scan with a SAVED detector: `matched`, `score`, `spans`. |
 
 ## Guardrails
 
 | Method | HTTP | Notes |
 |---|---|---|
 | `guardrails(ws_id=None)` | `GET /api/v1/workspaces/{ws}/guardrails` or `GET /api/v1/admin/guardrails` | |
-| `guardrail(gid)` | `GET /api/v1/admin/guardrails/{id}` | |
+| `guardrail(gid, ws_id=None)` | `GET /api/v1/workspaces/{ws}/guardrails/{id}` or `GET /api/v1/admin/guardrails/{id}` | |
 | `guardrail_by_name(ws_id, name)` | as `guardrails` | `ws_id=None` searches org guardrails. |
 | `create_guardrail(ws_id, name, detector_ids, description)` | `POST /api/v1/workspaces/{ws}/guardrails` | Needs at least one detector. |
 | `update_guardrail(ws_id, gid, name, detector_ids, description)` | `PUT /api/v1/workspaces/{ws}/guardrails/{id}` | |
 | `delete_guardrail(gid, ws_id=None)` | `DELETE /api/v1/workspaces/{ws}/guardrails/{id}` or `DELETE /api/v1/admin/guardrails/{id}` | |
-| `test_guardrail(text, detector_ids, guardrail_id=, deny_suspicious_characters=)` | `POST /api/v1/admin/guardrails/test` | Scans text without an LLM. |
+| `test_guardrail(text, detector_ids, guardrail_id=, deny_suspicious_characters=, ws_id=)` | `POST /api/v1/workspaces/{ws}/guardrails/test` or `POST /api/v1/admin/guardrails/test` | The guardrail tester: scans text without an LLM; `finalDisposition` plus a result per detector. |
 
 ## Policies
 
