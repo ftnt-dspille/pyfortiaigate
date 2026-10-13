@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `replace_virtual_key(key_id, ...)`: a working replacement for a key, and its
+  new secret. 8.0.2 rotates only an active key (an expired, revoked or suspended
+  one answers "cannot be rotated: mint a new key instead"), so an active key is
+  rotated in place and any other is reissued as a new key in the same workspace
+  with its name, limits, policies, whole-provider access and lifetime. It fails
+  closed, creating nothing, for a revoked key (`allow_revoked`) and for a key
+  with model groups or per-model provider limits that a replacement could not
+  inherit (`allow_uncopied`). Returns `Replaced`.
+
+### Changed
+
+- `key_id_from_secret` raises `ValueError` for anything but `faig_<32 hex>_...`
+  instead of returning a made-up id.
+- A key name shared by several keys resolves to the single active one (a renewed
+  key keeps its name); several active keys with one name are still refused.
+
 ## [0.3.1] - 2026-10-13
 
 ### Security

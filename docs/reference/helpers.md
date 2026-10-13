@@ -24,6 +24,8 @@
 
 ::: pyfortiaigate.Ensured
 
+::: pyfortiaigate.Replaced
+
 ## Body builders
 
 ::: pyfortiaigate.regex_detector_body
