@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-13
+
 ### Added
 
 - The command line reads `~/.config/pyfortiaigate/.env` (or `FAIG_ENV_FILE`)
