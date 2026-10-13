@@ -21,11 +21,13 @@ with FortiAIGate("https://faig.example.com", "admin", "<password>") as faig:
     faig.ensure_policy("team-a", "pii-policy", ["pii"], ["pii"], provider_ids=["openai"])
 ```
 
-From the shell:
+From the shell (`pip install "pyfortiaigate[cli]"` adds colour, panels and
+bar charts; without it the output is plain text):
 
 ```bash
+pyfortiaigate dashboard --ws team-a
 pyfortiaigate cost --days 1 --by key
-pyfortiaigate logs --key student04 --verdict Block
+pyfortiaigate logs --key student04-key --verdict Block --follow
 ```
 
 ## What it handles for you

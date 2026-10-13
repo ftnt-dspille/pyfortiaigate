@@ -11,9 +11,9 @@ from urllib.parse import parse_qs
 import pytest
 
 from pyfortiaigate import FortiAIGate
-from pyfortiaigate.cli import load_env, main, table
+from pyfortiaigate.cli import load_env, table
 
-from .conftest import FakeFaig, Seen
+from .conftest import FakeFaig, Seen, run
 
 
 def _q(seen: Seen) -> dict[str, str]:
@@ -93,24 +93,6 @@ def test_wait_for_traffic_times_out(faig: FortiAIGate, fake: FakeFaig) -> None:
 
 
 # -- CLI ---------------------------------------------------------------------------------
-@pytest.fixture
-def cli_env(fake: FakeFaig, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> FakeFaig:
-    for var in ("FAIG_TOKEN", "FAIG_KEY", "FAIG_CA_BUNDLE", "FAIG_VERIFY_TLS", "FAIG_ENV_FILE"):
-        monkeypatch.delenv(var, raising=False)
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))  # no real ~/.config
-    monkeypatch.setenv("FAIG_URL", fake.url)
-    monkeypatch.setenv("FAIG_USERNAME", "admin")
-    monkeypatch.setenv("FAIG_PASSWORD", "pw")
-    monkeypatch.chdir(tmp_path)  # no stray .env
-    return fake
-
-
-def run(capsys: pytest.CaptureFixture[str], *argv: str) -> tuple[int, str, str]:
-    code = main(list(argv))
-    out = capsys.readouterr()
-    return code, out.out, out.err
-
-
 def test_cli_table_output(cli_env: FakeFaig, capsys: pytest.CaptureFixture[str]) -> None:
     cli_env.answer(
         "GET",
@@ -119,14 +101,8 @@ def test_cli_table_output(cli_env: FakeFaig, capsys: pytest.CaptureFixture[str])
     )
     code, out, _ = run(capsys, "workspaces")
     assert code == 0
-    assert out.splitlines()[0].split() == [
-        "workspaceName",
-        "id",
-        "memberCount",
-        "grantedModelCount",
-        "spend",
-    ]
-    assert out.splitlines()[1].split() == ["team-a", "w1", "2", "-", "0.1235"]
+    assert out.splitlines()[0].split() == ["Workspace", "Members", "Models", "Spend", "ID"]
+    assert out.splitlines()[1].split() == ["team-a", "2", "-", "$0.1235", "w1"]
 
 
 def test_cli_json_output(cli_env: FakeFaig, capsys: pytest.CaptureFixture[str]) -> None:
@@ -138,7 +114,8 @@ def test_cli_json_output(cli_env: FakeFaig, capsys: pytest.CaptureFixture[str]) 
 
 def test_cli_whoami_and_empty(cli_env: FakeFaig, capsys: pytest.CaptureFixture[str]) -> None:
     cli_env.answer("GET", "/api/v1/user", (200, {"email": "a@example.com"}))
-    assert json.loads(run(capsys, "whoami")[1]) == {"email": "a@example.com"}
+    assert json.loads(run(capsys, "--json", "whoami")[1]) == {"email": "a@example.com"}
+    assert "Email       a@example.com" in run(capsys, "whoami")[1]
     cli_env.answer("GET", "/api/v1/admin/guardrails", (200, []))
     assert run(capsys, "guardrails")[1].strip() == "(none)"
 
@@ -214,12 +191,12 @@ def test_cli_scan(cli_env: FakeFaig, capsys: pytest.CaptureFixture[str]) -> None
     cli_env.answer("POST", "/api/v1/admin/guardrails/test", (200, result))
     code, out, _ = run(capsys, "scan", "--guardrail", "g1", "secret")
     assert code == 0
-    assert out.startswith("finalDisposition: block")
-    assert out.splitlines()[2].split()[0] == "d1"  # no names readable: the id
+    assert out.startswith("Verdict: BLOCK")
+    assert out.splitlines()[3].split()[:2] == ["d1", "✔"]  # no names readable: the id
     cli_env.answer("GET", "/api/v1/admin/detectors", (200, [{"uuid": "d1", "name": "My DLP"}]))
     cli_env.answer("GET", "/api/v1/admin/built-in-detectors", (200, [{"id": "x", "name": "X"}]))
     code, out, _ = run(capsys, "scan", "--guardrail", "g1", "secret")
-    assert out.splitlines()[2].startswith("My DLP")
+    assert out.splitlines()[3].startswith("My DLP")
     code, out, _ = run(capsys, "--json", "scan", "--detector", "d1", "secret")
     assert json.loads(out) == result
 

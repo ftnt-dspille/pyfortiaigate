@@ -5,7 +5,7 @@ workspace and virtual key, through calls a workspace member can make.
 
 ```bash
 python3 -m venv ~/faig-py && . ~/faig-py/bin/activate
-pip install pyfortiaigate
+pip install "pyfortiaigate[cli]"
 mkdir -p ~/.config/pyfortiaigate
 cp env.example ~/.config/pyfortiaigate/.env    # then fill it in
 chmod 600 ~/.config/pyfortiaigate/.env
@@ -24,6 +24,6 @@ python 01_hello.py
 The same settings file drives the command line:
 
 ```bash
-pyfortiaigate whoami
-pyfortiaigate logs --ws studentXX --verdict Block
+pyfortiaigate dashboard
+pyfortiaigate logs --verdict Block --follow
 ```

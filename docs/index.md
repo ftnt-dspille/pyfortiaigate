@@ -16,6 +16,7 @@ OpenAI-compatible gateway.
 
 ```bash
 pip install pyfortiaigate
+pip install "pyfortiaigate[cli]"    # the command line in colour, with charts
 ```
 
 Python 3.10+.

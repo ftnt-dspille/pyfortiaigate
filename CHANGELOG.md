@@ -6,6 +6,36 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `pip install "pyfortiaigate[cli]"`: with rich installed, the command line
+  draws coloured tables, panels and bar charts in a terminal. Pipes, and
+  `--plain` or `FAIG_CLI_STYLE=plain`, get plain aligned text; the library
+  itself still needs nothing.
+- New commands: `dashboard` (traffic, blocks, blocks per detector, spend by
+  model and a daily trend on one screen), `trend usage|cost` (a bar per hour,
+  day, week or month), `try-regex` (a regex detector in the Playground, matches
+  highlighted, nothing saved), `check-key`, `builtins` and `members`.
+- `logs --follow` prints new traffic as it arrives.
+- `FAIG_WS` is the default `--ws` (`--ws ''` for org-wide), and `--json` /
+  `--plain` work after the command as well as before it.
+
+### Changed
+
+- Every command's output is easier to read: plain-English headers, names
+  instead of ids (a guardrail's detectors, a deleted key), money as `$`, times
+  as local time or "3h ago", verdicts and statuses coloured, and a share bar in
+  `usage` / `cost` rankings.
+- `log` shows a summary (verdict, prompt, answer, tokens, cost and what matched)
+  instead of the raw record; `--json` still prints the record.
+- `whoami` shows a summary instead of JSON (`--json` for the raw user).
+- `scan` starts with `Verdict: BLOCK` (was `finalDisposition: block`).
+
+### Fixed
+
+- `workspaces --mine` printed columns the endpoint does not return (all `-`);
+  it now shows your role, your key count and your budget.
+
 ## [0.2.2] - 2026-10-13
 
 ### Added

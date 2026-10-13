@@ -11,12 +11,14 @@ from collections import defaultdict, deque
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 import pytest
 
 from pyfortiaigate import FortiAIGate
+from pyfortiaigate.cli import main
 
 Answer = tuple[Any, ...] | Callable[["Seen"], tuple[Any, ...]]
 
@@ -163,3 +165,30 @@ def _short_ids(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest) 
 @pytest.fixture(autouse=True)
 def _no_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("pyfortiaigate.client.time.sleep", lambda s: None)
+
+
+# -- the command line --------------------------------------------------------------
+@pytest.fixture
+def cli_env(fake: FakeFaig, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> FakeFaig:
+    for var in (
+        "FAIG_TOKEN",
+        "FAIG_KEY",
+        "FAIG_WS",
+        "FAIG_CA_BUNDLE",
+        "FAIG_VERIFY_TLS",
+        "FAIG_ENV_FILE",
+        "FAIG_CLI_STYLE",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))  # no real ~/.config
+    monkeypatch.setenv("FAIG_URL", fake.url)
+    monkeypatch.setenv("FAIG_USERNAME", "admin")
+    monkeypatch.setenv("FAIG_PASSWORD", "pw")
+    monkeypatch.chdir(tmp_path)  # no stray .env
+    return fake
+
+
+def run(capsys: pytest.CaptureFixture[str], *argv: str) -> tuple[int, str, str]:
+    code = main(list(argv))
+    out = capsys.readouterr()
+    return code, out.out, out.err
