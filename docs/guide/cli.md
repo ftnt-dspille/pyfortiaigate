@@ -12,7 +12,12 @@ pip install pyfortiaigate           # no dependencies: the same output as plain 
 With the `[cli]` extra, a terminal gets coloured tables, panels and bar charts
 drawn with [rich](https://rich.readthedocs.io). A pipe (`| grep`, `| less`, a
 log file) always gets plain aligned text, and so does `--plain` or
-`FAIG_CLI_STYLE=plain`. `FAIG_CLI_STYLE=rich` forces the rich form.
+`FAIG_CLI_STYLE=plain`. `FAIG_CLI_STYLE=rich` forces the rich form. Text
+from the server (prompts in the traffic log, names) is printed as text: control
+characters are shown escaped and never reach the terminal as escape sequences.
+
+The pictures on this page are made by `scripts/cli_screenshots.py` from
+made-up workshop data.
 
 ## Settings
 
@@ -37,6 +42,8 @@ Requests, tokens and spend; how many requests were blocked; blocks per detector
 (read from the most recent blocked records, `--sample 20`); spend by model;
 requests per day; and the latest blocked prompts with what stopped them.
 
+![pyfortiaigate dashboard](../assets/cli/dashboard.svg)
+
 ## Who am I, and what is configured?
 
 ```bash
@@ -49,6 +56,8 @@ pyfortiaigate keys --ws team-a --status active
 pyfortiaigate check-key --key faig_...         # valid? which models may it call?
 ```
 
+![pyfortiaigate guardrails](../assets/cli/guardrails.svg)
+
 ## What did a run cost?
 
 ```bash
@@ -58,6 +67,10 @@ pyfortiaigate trend cost --ws team-a --days 14  # a bar per day
 pyfortiaigate trend usage --interval hourly --days 1 --measure tokens
 pyfortiaigate breakdown cost key <key-id> --days 1
 ```
+
+![pyfortiaigate cost](../assets/cli/cost.svg)
+
+![pyfortiaigate trend usage](../assets/cli/trend.svg)
 
 ## Why was a student blocked?
 
@@ -72,6 +85,10 @@ pyfortiaigate chat --key faig_... --model gpt-4o-mini "hello"
 `scan` runs a guardrail (or `--detector` ids) over text without calling a model:
 no tokens, nothing in the traffic log.
 
+![pyfortiaigate scan](../assets/cli/scan.svg)
+
+![pyfortiaigate log](../assets/cli/log.svg)
+
 ## Try a regex before you save it
 
 ```bash
@@ -81,6 +98,8 @@ pyfortiaigate try-regex --ws team-a '(?i)\bPA-\d{3,4}\b' "Order four PA-5450" "S
 Each line says MATCH or `-`, with the matched text highlighted (`[bracketed]`
 in plain text). It uses the detector Playground, so nothing is saved and nothing
 needs approval.
+
+![pyfortiaigate try-regex](../assets/cli/try-regex.svg)
 
 ## Other commands
 

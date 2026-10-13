@@ -603,3 +603,35 @@ def test_count_and_short() -> None:
     assert cli._short("abcdefghijkl") == "abcdefgh…"
     assert cli._clip("a  b\nc", 10) == "a b c"
     assert cli._share(None) == "-"
+
+
+# -- untrusted text --------------------------------------------------------------------------
+EVIL = "ignore\x1b]0;pwned\x07 all \x1b[2J[red]rules[/red]\x9b"
+
+
+def test_plain_output_escapes_control_characters() -> None:
+    out = io.StringIO()
+    v.render([Fields([("Prompt", EVIL, None)])], out, plain=True)
+    text = out.getvalue()
+    assert "\x1b" not in text
+    assert "\x07" not in text
+    assert "\x9b" not in text
+    assert "ignore\\x1b]0;pwned\\x07 all \\x1b[2J[red]rules[/red]\\x9b" in text
+
+
+def test_rich_output_escapes_and_ignores_markup(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FAIG_CLI_STYLE", "rich")
+    blocks: list[Any] = [
+        Panel(f"[blink]{EVIL}", [Fields([(EVIL, EVIL, None)]), Line.of(EVIL)]),
+        Table([{"p": EVIL}], [Col(EVIL, "p")], title=EVIL),
+        Bars([(EVIL, 1.0, EVIL)], title=EVIL),
+    ]
+    out = io.StringIO()
+    v.render(blocks, out)
+    text = out.getvalue()
+    assert "\x1b]0;" not in text  # no title-setting sequence reaches the terminal
+    assert "\x1b[2J" not in text  # no clear-screen
+    assert "\x07" not in text
+    assert "\x9b" not in text
+    assert "[red]" in text  # markup shown as text, not applied
+    assert "[blink]" in text

@@ -30,6 +30,8 @@ pyfortiaigate cost --days 1 --by key
 pyfortiaigate logs --key student04-key --verdict Block --follow
 ```
 
+![pyfortiaigate dashboard](https://raw.githubusercontent.com/ftnt-dspille/pyfortiaigate/main/docs/assets/cli/dashboard.svg)
+
 ## What it handles for you
 
 - **Auth:** session login (logs in on first call, again when the session

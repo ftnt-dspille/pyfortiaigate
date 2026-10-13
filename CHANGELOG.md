@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- The command line prints text from the server (traffic-log prompts and
+  answers, detector, guardrail and workspace names) as text: control
+  characters are shown escaped (`\x1b`) instead of reaching the terminal as
+  escape sequences, and rich markup in a name (`[red]...`) is shown, not
+  applied. 0.3.0 passed both through.
+
+### Added
+
+- Terminal screenshots in the command-line guide and the README, made by
+  `scripts/cli_screenshots.py` from made-up data.
+
 ## [0.3.0] - 2026-10-13
 
 ### Added

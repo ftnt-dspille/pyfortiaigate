@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import re
 import sys
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -41,6 +42,17 @@ Getter: TypeAlias = str | Callable[[Mapping[str, Any]], Any]
 
 
 # -- values --------------------------------------------------------------------------
+# C0 and C1 control characters except tab and newline: a prompt in the traffic log
+# is attacker-controlled text and must not reach the terminal as escape sequences.
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def safe(text: str) -> str:
+    """``text`` with control characters shown as ``\\x1b`` instead of sent to the
+    terminal."""
+    return _CONTROL.sub(lambda m: f"\\x{ord(m.group()):02x}", text)
+
+
 def dig(row: Mapping[str, Any], path: str) -> Any:
     """``row["a"]["b"]`` for ``"a.b"``; None when any step is missing."""
     value: Any = row
@@ -268,7 +280,7 @@ def render(blocks: Sequence[Block], stream: IO[str] | None = None, plain: bool =
     if use_rich(out, plain):
         _render_rich(blocks, out)
     else:
-        out.write(plain_text(blocks) + "\n")
+        out.write(safe(plain_text(blocks)) + "\n")
 
 
 # -- plain text -------------------------------------------------------------------------
@@ -362,7 +374,8 @@ def _rich(block: Block) -> Any:
     from rich.text import Text
 
     def styled(text: str, style: Style) -> Text:
-        return Text(text, style=STYLES.get(style or "", style or ""))
+        """Data as plain text: never parsed as rich markup, control characters escaped."""
+        return Text(safe(text), style=STYLES.get(style or "", style or ""))
 
     if isinstance(block, Table):
         if not block.rows:
@@ -372,9 +385,8 @@ def _rich(block: Block) -> Any:
         t = RTable(
             box=box.SIMPLE_HEAD,
             header_style="bold",
-            title=block.title,
+            title=styled(block.title, "title") if block.title else None,
             title_justify="left",
-            title_style="bold",
             pad_edge=False,
             # a blank line between rows when a cell spans several lines
             leading=1
@@ -383,7 +395,7 @@ def _rich(block: Block) -> Any:
         )
         for c in block.cols:
             t.add_column(
-                c.header,
+                styled(c.header, None),
                 justify="right" if c.right else "left",
                 no_wrap=not c.wrap,
                 overflow="fold" if c.wrap else "ellipsis",
@@ -396,7 +408,7 @@ def _rich(block: Block) -> Any:
         grid.add_column(style="dim", no_wrap=True)
         grid.add_column()
         for label, value, style in block.items:
-            grid.add_row(label, styled(value, style))
+            grid.add_row(styled(label, None), styled(value, style))
         if block.title:
             return Group(styled(block.title, "title"), grid)
         return grid
@@ -413,12 +425,12 @@ def _rich(block: Block) -> Any:
             filled = _bar(v, top, block.width, "█")
             bar = Text(filled, style=STYLES.get(block.style, block.style))
             bar.append("·" * (block.width - len(filled)), style="dim")
-            grid.add_row(label, bar, Text(text, style="bold"))
+            grid.add_row(styled(label, None), bar, styled(text, "title"))
         return Group(*head, grid)
     if isinstance(block, Line):
         line = Text()
         for text, style in block.parts:
-            line.append(text, style=STYLES.get(style or "", style or ""))
+            line.append(safe(text), style=STYLES.get(style or "", style or ""))
         return line
     if isinstance(block, Lines):
         return Group(*(_rich(line) for line in block.lines))
@@ -430,7 +442,7 @@ def _rich(block: Block) -> Any:
             body.append(_rich(b))
         return RPanel(
             Group(*body),
-            title=f"[bold]{block.title}[/]",
+            title=styled(block.title, "title"),
             title_align="left",
             border_style=STYLES.get(block.style, block.style),
             box=box.ROUNDED,
