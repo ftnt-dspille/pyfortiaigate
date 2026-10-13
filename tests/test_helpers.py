@@ -27,6 +27,9 @@ from pyfortiaigate import (
         ("https://faig.example.com/", "https://faig.example.com"),
         ("https://faig.example.com/api", "https://faig.example.com"),
         ("http://faig.example.com:8443/api/v1", "http://faig.example.com:8443"),
+        # whatever a user copies: the console tab, or the gateway URL a tool uses
+        ("https://faig.example.com/ui/login?next=/w/x#top", "https://faig.example.com"),
+        ("https://faig.example.com/ai/openai/v1/chat/completions", "https://faig.example.com"),
     ],
 )
 def test_origin(url: str, want: str) -> None:

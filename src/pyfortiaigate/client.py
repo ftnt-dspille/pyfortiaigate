@@ -993,7 +993,9 @@ class PromptText(TypedDict, total=False):
 
 
 class TrafficLog(TrafficLogRow, total=False):
-    """The full record from ``traffic_log(uuid)``."""
+    """The full record from ``traffic_log(uuid)``. On 8.0.2 ``detector``,
+    ``guardrail`` and ``policy`` are empty: the detectors that matched are in
+    ``violation`` (``detectorName``, ``details``)."""
 
     httpStatus: int
     errorCode: str | None
@@ -1257,7 +1259,9 @@ def _message(body: str) -> str:
 
 
 def origin(url: str) -> str:
-    """``host``, ``https://host``, ``https://host/api`` -> ``https://host``."""
+    """``host``, ``https://host``, ``https://host/api`` -> ``https://host``. Any
+    path, query or fragment is dropped, so the console address (``.../ui``) or the
+    gateway's chat URL works as well as the bare host."""
     url = url.strip()
     if not url:
         raise ValueError("FortiAIGate URL is required")
@@ -1878,9 +1882,14 @@ class FortiAIGate:
             )
         return cast("list[Detector]", self._list("/api/v1/admin/detectors"))
 
-    def builtin_detectors(self) -> list[BuiltinDetector]:
-        """Built-in detectors, identified by a slug id; a guardrail can use either kind."""
-        return cast("list[BuiltinDetector]", self._list("/api/v1/admin/built-in-detectors"))
+    def builtin_detectors(self, ws_id: WsRef | None = None) -> list[BuiltinDetector]:
+        """Built-in detectors, identified by a slug id; a guardrail can use either
+        kind. ``ws_id`` uses the workspace path, which a workspace member can call."""
+        if ws_id:
+            path = f"/api/v1/workspaces/{self._ws(ws_id)}/built-in-detectors"
+        else:
+            path = "/api/v1/admin/built-in-detectors"
+        return cast("list[BuiltinDetector]", self._list(path))
 
     def detector_by_name(self, ws_id: WsRef, name: str) -> Detector | None:
         return next((d for d in self.detectors(ws_id) if d.get("name") == name), None)

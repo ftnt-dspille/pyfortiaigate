@@ -6,7 +6,25 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The command line reads `~/.config/pyfortiaigate/.env` (or `FAIG_ENV_FILE`)
+  when `--env-file` is not given, so settings live in one place and every
+  command finds them. A `.env` in the current directory is still never read, and
+  a settings file other users can read gets a warning.
+- Tests and docs: a URL with any path (the console's `/ui`, the gateway's
+  `/ai/openai/v1/chat/completions`) is reduced to its host, as it always was.
+- `builtin_detectors(ws_id)`: the workspace path, which a workspace member can
+  call.
+- `pyfortiaigate scan` names each detector instead of printing its id.
+- `examples/workshop/`: six short scripts for a hands-on lab (red-team a key,
+  scan without a model call, blocks per detector, spend by model, a regex
+  detector in the Playground), five with a FIXME to finish.
+
 ### Fixed
+
+- Docs: `traffic_log()` names the matching detector in `violation`;
+  `detector`, `guardrail` and `policy` come back empty on 8.0.2.
 
 - Docs: types in method signatures (`-> User`, `list[Invitation]`, `WsRef`, ...)
   link to their entries; the docs build now fails on any reference that does

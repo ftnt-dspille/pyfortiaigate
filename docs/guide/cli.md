@@ -5,10 +5,12 @@ Installing the package adds a `pyfortiaigate` command (also
 is read-only except `chat`, which sends one prompt through the gateway.
 
 Settings come from the same `FAIG_*` variables as `FortiAIGate.from_env()`.
-`--env-file .env` reads a settings file; its `FAIG_*` lines fill in what the
-shell does not set (other lines are ignored). No file is read unless you name
-one, so a stray `.env` cannot point your credentials at another server. An
-alias keeps it short: `alias faig='pyfortiaigate --env-file ~/faig.env'`.
+A settings file's `FAIG_*` lines fill in what the shell does not set (other
+lines are ignored). Put yours in `~/.config/pyfortiaigate/.env` and every
+command finds it; `chmod 600` it, since it holds your password (the command
+warns when other users can read it). `--env-file <path>` or `FAIG_ENV_FILE`
+reads a different file instead. A `.env` in the current directory is never
+read, so a stray one cannot point your credentials at another server.
 
 ```bash
 pyfortiaigate whoami

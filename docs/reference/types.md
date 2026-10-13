@@ -1101,7 +1101,9 @@ A row of `traffic_logs`.
 [](){#pyfortiaigate.TrafficLog}
 ### TrafficLog
 
-The full record from `traffic_log(uuid)`.
+The full record from `traffic_log(uuid)`. On 8.0.2 `detector`,
+`guardrail` and `policy` are empty: the detectors that matched are in
+`violation` (`detectorName`, `details`).
 
 Everything in [TrafficLogRow](#trafficlogrow), plus the fields below marked new.
 

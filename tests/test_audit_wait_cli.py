@@ -95,8 +95,9 @@ def test_wait_for_traffic_times_out(faig: FortiAIGate, fake: FakeFaig) -> None:
 # -- CLI ---------------------------------------------------------------------------------
 @pytest.fixture
 def cli_env(fake: FakeFaig, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> FakeFaig:
-    for var in ("FAIG_TOKEN", "FAIG_KEY", "FAIG_CA_BUNDLE", "FAIG_VERIFY_TLS"):
+    for var in ("FAIG_TOKEN", "FAIG_KEY", "FAIG_CA_BUNDLE", "FAIG_VERIFY_TLS", "FAIG_ENV_FILE"):
         monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))  # no real ~/.config
     monkeypatch.setenv("FAIG_URL", fake.url)
     monkeypatch.setenv("FAIG_USERNAME", "admin")
     monkeypatch.setenv("FAIG_PASSWORD", "pw")
@@ -214,6 +215,11 @@ def test_cli_scan(cli_env: FakeFaig, capsys: pytest.CaptureFixture[str]) -> None
     code, out, _ = run(capsys, "scan", "--guardrail", "g1", "secret")
     assert code == 0
     assert out.startswith("finalDisposition: block")
+    assert out.splitlines()[2].split()[0] == "d1"  # no names readable: the id
+    cli_env.answer("GET", "/api/v1/admin/detectors", (200, [{"uuid": "d1", "name": "My DLP"}]))
+    cli_env.answer("GET", "/api/v1/admin/built-in-detectors", (200, [{"id": "x", "name": "X"}]))
+    code, out, _ = run(capsys, "scan", "--guardrail", "g1", "secret")
+    assert out.splitlines()[2].startswith("My DLP")
     code, out, _ = run(capsys, "--json", "scan", "--detector", "d1", "secret")
     assert json.loads(out) == result
 
@@ -275,6 +281,70 @@ def test_cli_ignores_a_dotenv_it_was_not_given(
     code, _, err = run(capsys, "whoami")
     assert code == 2
     assert "set FAIG_URL" in err
+
+
+def _home_settings(tmp_path: Path, text: str, mode: int = 0o600) -> Path:
+    path = tmp_path / "config" / "pyfortiaigate" / ".env"
+    path.parent.mkdir(parents=True)
+    path.write_text(text)
+    path.chmod(mode)
+    return path
+
+
+def test_cli_reads_the_home_settings_file(
+    cli_env: FakeFaig,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("FAIG_URL")
+    _home_settings(tmp_path, f"FAIG_URL={cli_env.url}\n")
+    cli_env.answer("GET", "/api/v1/user", (200, {"ok": True}))
+    code, _, err = run(capsys, "whoami")
+    assert code == 0
+    assert err == ""
+
+
+def test_cli_warns_when_the_settings_file_is_readable_by_others(
+    cli_env: FakeFaig,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _home_settings(tmp_path, "FAIG_KEY=faig_x\n", mode=0o644)
+    cli_env.answer("GET", "/api/v1/user", (200, {"ok": True}))
+    code, _, err = run(capsys, "whoami")
+    assert code == 0
+    assert "readable by other users" in err
+
+
+def test_cli_named_file_replaces_the_home_one(
+    cli_env: FakeFaig,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("FAIG_URL")
+    _home_settings(tmp_path, "FAIG_URL=https://home.example.com\n")
+    named = tmp_path / "named.env"
+    named.write_text(f"FAIG_URL={cli_env.url}\n")
+    named.chmod(0o600)
+    cli_env.answer("GET", "/api/v1/user", (200, {"ok": True}))
+    monkeypatch.setenv("FAIG_ENV_FILE", str(named))
+    assert run(capsys, "whoami")[0] == 0
+    monkeypatch.delenv("FAIG_URL")
+    monkeypatch.delenv("FAIG_ENV_FILE")
+    assert run(capsys, "--env-file", str(named), "whoami")[0] == 0
+    assert os.environ["FAIG_URL"] == cli_env.url
+
+
+def test_cli_missing_faig_env_file(
+    cli_env: FakeFaig, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FAIG_ENV_FILE", "absent.env")
+    code, _, err = run(capsys, "whoami")
+    assert code == 2
+    assert "no settings file absent.env" in err
 
 
 def test_cli_missing_env_file(cli_env: FakeFaig, capsys: pytest.CaptureFixture[str]) -> None:

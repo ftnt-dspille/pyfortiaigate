@@ -2,10 +2,12 @@
 writing a script. Read-only apart from ``chat`` (one gateway request).
 
 Connection settings come from the environment (FAIG_URL plus FAIG_TOKEN or
-FAIG_USERNAME/FAIG_PASSWORD, FAIG_CA_BUNDLE, FAIG_VERIFY_TLS). ``--env-file``
-names a settings file whose FAIG_* lines fill in what the shell does not set;
-no file is read unless it is named, so a ``.env`` in whatever directory you
-happen to be in cannot redirect your credentials.
+FAIG_USERNAME/FAIG_PASSWORD, FAIG_CA_BUNDLE, FAIG_VERIFY_TLS), then from a
+settings file whose FAIG_* lines fill in what the shell does not set: the one
+``--env-file`` names, else ``FAIG_ENV_FILE``, else your own
+``~/.config/pyfortiaigate/.env`` when it exists. A ``.env`` in whatever
+directory you happen to be in is never read, so it cannot redirect your
+credentials.
 
     pyfortiaigate workspaces
     pyfortiaigate keys --ws team-a
@@ -49,6 +51,28 @@ def load_env(path: Path) -> None:
         value = value.strip().strip("'\"")
         if key.startswith("FAIG_") and value and key not in os.environ:
             os.environ[key] = value
+
+
+def default_env_file() -> Path:
+    """The settings file read when ``--env-file`` is not given: ``FAIG_ENV_FILE``,
+    else ``$XDG_CONFIG_HOME/pyfortiaigate/.env`` (``~/.config/pyfortiaigate/.env``)."""
+    named = os.environ.get("FAIG_ENV_FILE")
+    if named:
+        return Path(named).expanduser()
+    base = os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config"
+    return Path(base) / "pyfortiaigate" / ".env"
+
+
+def _settings_file(argv: Sequence[str]) -> Path | None:
+    """The file to read: a named one (``--env-file``, ``FAIG_ENV_FILE``) must
+    exist; the default one is optional."""
+    named = next((argv[i + 1] for i, a in enumerate(argv[:-1]) if a == "--env-file"), None)
+    if named:
+        return Path(named)
+    path = default_env_file()
+    if os.environ.get("FAIG_ENV_FILE") or path.is_file():
+        return path
+    return None
 
 
 def table(rows: Iterable[Mapping[str, Any]], columns: Sequence[str]) -> str:
@@ -213,13 +237,22 @@ def cmd_scan(c: FortiAIGate, args: argparse.Namespace) -> Any:
     if args.json:
         return out
     print(f"finalDisposition: {out.get('finalDisposition')}")
-    return out.get("results") or [], [
-        "detectorId",
-        "matched",
-        "finalDisposition",
-        "score",
-        "details",
+    names = _detector_names(c, args.ws)
+    rows = [
+        {**r, "detector": names.get(r.get("detectorId")) or r.get("detectorId")}
+        for r in out.get("results") or []
     ]
+    return rows, ["detector", "matched", "finalDisposition", "score", "details"]
+
+
+def _detector_names(c: FortiAIGate, ws: str | None) -> dict[Any, Any]:
+    """Detector id -> name, custom and built-in; empty when they can't be read."""
+    try:
+        names = {d.get("uuid"): d.get("name") for d in c.detectors(ws)}
+        names |= {d.get("id"): d.get("name") for d in c.builtin_detectors(ws)}
+    except FaigError:
+        return {}
+    return names
 
 
 def cmd_chat(c: FortiAIGate, args: argparse.Namespace) -> Any:
@@ -246,9 +279,14 @@ def cmd_licenses(c: FortiAIGate, args: argparse.Namespace) -> Any:
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="pyfortiaigate",
-        description="Look at a FortiAIGate from the shell (settings from FAIG_*; see --env-file).",
+        description="Look at a FortiAIGate from the shell (settings from FAIG_* and"
+        " ~/.config/pyfortiaigate/.env; see --env-file).",
     )
-    p.add_argument("--env-file", help="settings file with FAIG_* lines (e.g. .env)")
+    p.add_argument(
+        "--env-file",
+        help="settings file with FAIG_* lines"
+        " (default: FAIG_ENV_FILE, else ~/.config/pyfortiaigate/.env if it exists)",
+    )
     p.add_argument("--json", action="store_true", help="print raw JSON")
     p.add_argument("--insecure", action="store_true", help="skip TLS verification")
     sub = p.add_subparsers(dest="command", required=True, metavar="COMMAND")
@@ -317,13 +355,19 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     # Read the settings file before building the parser: its defaults use FAIG_KEY.
-    env_file = next((argv[i + 1] for i, a in enumerate(argv[:-1]) if a == "--env-file"), None)
+    env_file = _settings_file(argv)
     if env_file:
         try:
-            load_env(Path(env_file))
+            load_env(env_file)
         except FileNotFoundError as e:
             print(f"pyfortiaigate: {e}", file=sys.stderr)
             return 2
+        if os.name == "posix" and env_file.stat().st_mode & 0o077:
+            print(
+                f"pyfortiaigate: warning: {env_file} is readable by other users"
+                f" (chmod 600 {env_file})",
+                file=sys.stderr,
+            )
     args = parser().parse_args(argv)
     if not os.environ.get("FAIG_URL"):
         print(

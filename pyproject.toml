@@ -80,3 +80,7 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PT", "C4"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["B011"]
+
+[tool.ruff.lint.isort]
+# examples/workshop: the scripts import their sibling lab.py
+known-local-folder = ["lab"]

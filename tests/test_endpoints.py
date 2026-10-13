@@ -48,6 +48,12 @@ CASES: list[tuple[Callable[[FortiAIGate], Any], str, str, Any]] = [
     (lambda c: c.detectors(), "GET", "/api/v1/admin/detectors", None),
     (lambda c: c.builtin_detectors(), "GET", "/api/v1/admin/built-in-detectors", None),
     (
+        lambda c: c.builtin_detectors("w1"),
+        "GET",
+        "/api/v1/workspaces/w1/built-in-detectors",
+        None,
+    ),
+    (
         lambda c: c.create_detector("w1", {"name": "d"}),
         "POST",
         "/api/v1/workspaces/w1/detectors",

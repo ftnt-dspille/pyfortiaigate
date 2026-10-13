@@ -68,7 +68,7 @@ Names are resolved once and cached; an unknown name raises `LookupError`.
 | Method | HTTP | Returns | Notes |
 |---|---|---|---|
 | [`detectors(ws_id=None)`](reference/client.md#pyfortiaigate.FortiAIGate.detectors) | `GET /api/v1/workspaces/{ws}/detectors` or `GET /api/v1/admin/detectors` | list\[[Detector](reference/types.md#detector)\] | Custom detectors. |
-| [`builtin_detectors()`](reference/client.md#pyfortiaigate.FortiAIGate.builtin_detectors) | `GET /api/v1/admin/built-in-detectors` | list\[[BuiltinDetector](reference/types.md#builtindetector)\] | Identified by slug id. |
+| [`builtin_detectors(ws_id=None)`](reference/client.md#pyfortiaigate.FortiAIGate.builtin_detectors) | `GET /api/v1/workspaces/{ws}/built-in-detectors` or `GET /api/v1/admin/built-in-detectors` | list\[[BuiltinDetector](reference/types.md#builtindetector)\] | Identified by slug id. |
 | [`detector_by_name(ws_id, name)`](reference/client.md#pyfortiaigate.FortiAIGate.detector_by_name) | `GET /api/v1/workspaces/{ws}/detectors` | [Detector](reference/types.md#detector) \| None |  |
 | [`create_detector(ws_id, body)`](reference/client.md#pyfortiaigate.FortiAIGate.create_detector) | `POST /api/v1/workspaces/{ws}/detectors` | [Detector](reference/types.md#detector) | Build `body` with [`regex_detector_body`](reference/helpers.md#pyfortiaigate.regex_detector_body) / [`dlp_detector_body`](reference/helpers.md#pyfortiaigate.dlp_detector_body). |
 | [`update_detector(ws_id, uuid, body)`](reference/client.md#pyfortiaigate.FortiAIGate.update_detector) | `PUT /api/v1/workspaces/{ws}/detectors/{uuid}` | [Detector](reference/types.md#detector) | An active detector changes at once. |
