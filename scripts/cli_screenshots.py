@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import datetime as dt
+import hashlib
 import io
 import os
 import re
@@ -143,9 +144,14 @@ DETAILS = {
 MODEL = "llama3.2-1b"
 
 
+def uid(name: str) -> str:
+    """A stable, realistic-looking 32-hex traffic log id for a made-up record."""
+    return hashlib.md5(name.encode()).hexdigest()
+
+
 def row(uuid: str, minutes: float, verdict: str = "Block") -> dict[str, Any]:
     return {
-        "uuid": uuid.ljust(32, "0"),
+        "uuid": uid(uuid),
         "timeStamp": ms(minutes),
         "verdictLabel": verdict,
         "action": "DENY" if verdict == "Block" else "",
@@ -260,9 +266,10 @@ class Demo:
         return {"total": 35 if blocked else 227}
 
     def traffic_log(self, uuid: str, ws: Any = None) -> dict[str, Any]:
-        prompt, hits, minutes = PROMPTS[uuid[:2]]
+        name = next(k for k in PROMPTS if uid(k) == uuid)
+        prompt, hits, minutes = PROMPTS[name]
         return {
-            **row(uuid[:2], minutes),
+            **row(name, minutes),
             "uuid": uuid,
             "workspace": WS,
             "guardType": "input",
@@ -317,7 +324,7 @@ SHOTS = [
         ],
         112,
     ),
-    ("log", ["log", "t1".ljust(32, "0")], 100),
+    ("log", ["log", uid("t1")], 100),
     ("trend", ["trend", "usage"], 80),
     ("cost", ["cost", "--by", "model", "--days", "7"], 90),
     (
