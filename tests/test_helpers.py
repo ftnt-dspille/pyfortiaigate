@@ -187,3 +187,19 @@ def test_key_update_body_keeps_writable_fields_and_flattens_policy_ids() -> None
     }
     assert key_update_body(rec) == {"keyName": "k", "rpm": 5, "policyIds": ["p0", "p1"]}
     assert key_update_body({"policyIds": None}) == {"policyIds": []}
+
+
+@pytest.mark.parametrize(
+    ("data", "end", "want"),
+    [
+        ({"items": [{"id": 1}], "meta": {}}, "top", [{"id": 1}]),
+        ({"meta": {"windowTokens": 0}}, "top", []),
+        ({"top": [{"id": "t"}], "bottom": [{"id": "b"}]}, "top", [{"id": "t"}]),
+        ({"top": [{"id": "t"}], "bottom": [{"id": "b"}]}, "bottom", [{"id": "b"}]),
+        (None, "top", []),
+    ],
+)
+def test_rank_items(data: Any, end: str, want: Any) -> None:
+    from pyfortiaigate import rank_items
+
+    assert rank_items(data, end) == want

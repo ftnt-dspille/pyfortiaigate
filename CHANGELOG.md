@@ -6,6 +6,31 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-13
+
+### Added
+
+- Usage, cost and analytics reports, org-wide or per workspace:
+  `usage_summary/trend/rankings/breakdown`, `cost_summary/trend/rankings/breakdown`,
+  `analytics`; `rank_items` reads ranking rows. Allowed values are checked
+  before sending.
+- Traffic logs: `traffic_logs()` iterator over the API cursor, `traffic_logs_page`,
+  `traffic_log(uuid)` (cost, prompt, verdict, detector) and filter options; ICAP
+  logs the same way. Filters are validated, since the API silently ignores
+  unknown names and operators and returns every row.
+- Workspace-path writes: `delete_detector(..., ws_id)`, `update_policy`,
+  `withdraw` (cancel a pending submission), and `ws_id=` on every virtual-key
+  call. `workspace()`.
+- The Playground (`playground()`: test an unsaved detector body) and
+  `ai_detector_body()` for Natural Language detectors.
+- What a key can call: `available_models()`, `can_use_model()`, plus `models()`,
+  `workspace_models()`, `grantable_providers()`, `attachable_policies()` and
+  workspace `model_groups()`.
+
+### Changed
+
+- `workspace_analytics()` takes an optional date window.
+
 ## [0.1.0] - 2026-10-12
 
 ### Added

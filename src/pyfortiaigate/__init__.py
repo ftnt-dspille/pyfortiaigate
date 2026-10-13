@@ -6,6 +6,7 @@ from .client import (
     ROLE_MEMBER,
     FaigError,
     FortiAIGate,
+    ai_detector_body,
     approve_new,
     blocked,
     dlp_detector_body,
@@ -14,6 +15,7 @@ from .client import (
     key_id_from_secret,
     key_update_body,
     origin,
+    rank_items,
     regex_detector_body,
     secret_from_response,
 )
@@ -24,6 +26,7 @@ __all__ = [
     "ROLE_MEMBER",
     "FaigError",
     "FortiAIGate",
+    "ai_detector_body",
     "approve_new",
     "blocked",
     "dlp_detector_body",
@@ -32,6 +35,7 @@ __all__ = [
     "key_id_from_secret",
     "key_update_body",
     "origin",
+    "rank_items",
     "regex_detector_body",
     "secret_from_response",
 ]

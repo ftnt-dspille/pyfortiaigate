@@ -74,6 +74,7 @@ nav:
       - Reliability: guide/reliability.md
       - Approval workflow: guide/approval.md
       - Virtual keys & the gateway: guide/gateway.md
+      - Usage, cost & logs: guide/reporting.md
   - Reference:
       - FortiAIGate client: reference/client.md
       - Helpers & body builders: reference/helpers.md

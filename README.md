@@ -38,8 +38,10 @@ with FortiAIGate("https://faig.example.com", "admin", "<password>") as faig:
 
 Users and invitations, workspaces, detectors (custom and built-in), guardrails
 (including scan tests), policies, the approval workflow, virtual keys (create,
-update, rotate, revoke), AI providers, model groups, DLP labels, audit logs,
-and the gateway (`check_key`, `chat_completion`).
+update, rotate, revoke), usage and cost reports, guardrail analytics, traffic and
+ICAP logs, the detector Playground, Natural Language detectors, AI providers,
+models and what a key may call, DLP labels, audit logs, and the gateway
+(`check_key`, `available_models`, `chat_completion`).
 
 Full reference: **https://ftnt-dspille.github.io/pyfortiaigate/**
 

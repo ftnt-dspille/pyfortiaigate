@@ -10,6 +10,8 @@
 
 ::: pyfortiaigate.dlp_detector_body
 
+::: pyfortiaigate.ai_detector_body
+
 ::: pyfortiaigate.guardrail_body
 
 ## Workflow
@@ -19,6 +21,8 @@
 ## Responses
 
 ::: pyfortiaigate.items
+
+::: pyfortiaigate.rank_items
 
 ::: pyfortiaigate.blocked
 
