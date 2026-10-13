@@ -62,6 +62,7 @@
 
 | Name | Value | Use |
 |---|---|---|
-| `ROLE_MEMBER` | `"org_member"` | default role for `invite` (8.0.2 rejects plain `member`) |
-| `ROLE_ADMIN` | `"org_admin"` | org administrator |
-| `QUEUE_KIND` | `{"guardrail": "guardrails", ...}` | review-queue `type` -> the `approve` / `reject` kind |
+| [](){#pyfortiaigate.client.ROLE_MEMBER}[](){#pyfortiaigate.ROLE_MEMBER}`ROLE_MEMBER` | `"org_member"` | default role for `invite` (8.0.2 rejects plain `member`) |
+| [](){#pyfortiaigate.client.ROLE_ADMIN}[](){#pyfortiaigate.ROLE_ADMIN}`ROLE_ADMIN` | `"org_admin"` | org administrator |
+| [](){#pyfortiaigate.client.QUEUE_KIND}[](){#pyfortiaigate.QUEUE_KIND}`QUEUE_KIND` | `{"guardrail": "guardrails", ...}` | review-queue `type` -> the `approve` / `reject` kind |
+| [](){#pyfortiaigate.client.LOG_PAGE}[](){#pyfortiaigate.LOG_PAGE}`LOG_PAGE` | `50` | default page size for the log iterators (the console's) |

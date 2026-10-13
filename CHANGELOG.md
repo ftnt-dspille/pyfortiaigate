@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Docs: types in method signatures (`-> User`, `list[Invitation]`, `WsRef`, ...)
+  link to their entries; the docs build now fails on any reference that does
+  not resolve.
+
 ## [0.2.1] - 2026-10-13
 
 ### Added

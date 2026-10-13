@@ -26,6 +26,7 @@ jobs:
           python-version: '3.12'
       - run: pip install -e ".[docs]"
       - run: mkdocs build --strict
+      - run: python scripts/check_site_refs.py site
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

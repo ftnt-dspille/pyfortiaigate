@@ -158,6 +158,28 @@ ICAP logs) are untyped `JSON`.
 """
 
 
+ALIAS_ROWS = [
+    ("WsRef", "str | Mapping", "A workspace: its id, its name, or its record"),
+    (
+        "Ref",
+        "str | Mapping",
+        "A detector, guardrail, policy or key: id, name or record"
+        " (a key also by its `faig_...` secret)",
+    ),
+    ("Day", "date | str", 'A report date: a `date` or `"YYYY-MM-DD"`'),
+    ("When", "datetime | int", "A log time: a `datetime` (naive = UTC) or epoch milliseconds"),
+    ("JSON", "Any", "An untyped response: the decoded JSON as-is"),
+]
+ALIASES = (
+    "\n## Argument types\n\nAliases used in method signatures.\n\n"
+    "| Name | Is | Meaning |\n|---|---|---|\n"
+    + "".join(
+        f"| [](){{#pyfortiaigate.client.{n}}}`{n}` | `{t.replace('|', chr(92) + '|')}` | {m} |\n"
+        for n, t, m in ALIAS_ROWS
+    )
+)
+
+
 def public_types() -> dict[str, type]:
     return {n: v for n, v in vars(C).items() if not n.startswith("_") and typing.is_typeddict(v)}
 
@@ -226,11 +248,16 @@ def render_types() -> str:
     missing = names - set(listed)
     if missing:
         raise SystemExit(f"add these types to SECTIONS in gen_docs.py: {sorted(missing)}")
-    parts = [HEADER]
+    parts = [HEADER, ALIASES]
     for title, group in SECTIONS:
         parts.append(f"\n## {title}\n")
         for name in group:
-            parts.append(f"\n### {name}\n")
+            # autorefs anchors: signatures on the reference pages name the type as
+            # pyfortiaigate.client.<Name>; users may write pyfortiaigate.<Name>.
+            parts.append(
+                f"\n[](){{#pyfortiaigate.client.{name}}}\n[](){{#pyfortiaigate.{name}}}\n"
+                f"### {name}\n"
+            )
             if name == "DateWindow":
                 doc = C.DateWindow.__doc__ or ""
                 fields = [(k, "str", "") for k in C.DateWindow.__annotations__]

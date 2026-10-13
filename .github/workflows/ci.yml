@@ -51,3 +51,4 @@ jobs:
         run: |
           pip install -e ".[docs]"
           mkdocs build --strict
+          python scripts/check_site_refs.py site
