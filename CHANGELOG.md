@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-15
+
 ### Added
 
 - `replace_virtual_key(key_id, ...)`: a working replacement for a key, and its
