@@ -88,4 +88,5 @@ nav:
       - FortiAIGate client: reference/client.md
       - Helpers & body builders: reference/helpers.md
       - Response types: reference/types.md
+      - Settings: reference/settings.md
   - Changelog: changelog.md

@@ -6,6 +6,47 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `pyfortiaigate config`: `config init` asks for the address, login, workspace
+  and virtual key (password and key typed hidden, Enter keeps a saved value),
+  logs in and checks the key, then writes `~/.config/pyfortiaigate/.env` with
+  mode 600; a refused login is never saved. Flags and `--password-stdin` answer
+  without a terminal. `config` (`config list`) shows each setting, its value
+  (secrets masked) and where it came from; `config set`, `config unset` and
+  `config path` edit and locate the file, keeping its comments.
+- `pyfortiaigate.settings`: the one settings reader, used by the command line
+  and the workshop scripts. `load_settings()` returns the resolved `FAIG_*`
+  values with their sources; it never changes `os.environ`.
+- `FortiAIGate.from_env(env)` takes a mapping, such as `load_settings()`.
+- `chat` prints the HTTP status and whether the prompt was answered, blocked or
+  refused, and exits 0, 3 or 1 to match. `--repeat N` sends a burst and reports
+  each request (a rate limit shows as 429 rows); `--why` names the detectors a
+  blocked prompt matched, from its traffic log record. `--model` defaults to
+  `FAIG_MODEL`, else the first model the key may call; `config init` saves the
+  key's model so no request is spent on that lookup.
+- `scenarios CATALOG`: send each prompt of a JSON catalog and compare blocked or
+  allowed with its `expect` (PASS, MISMATCH, or ERROR when the gateway refused),
+  with `--use-case`, `--scanner` and `--verbose`. Exit 0, 3 or 1. The workshop's
+  catalog is `examples/workshop/scenarios.json`.
+- A global `--url` flag.
+
+### Changed
+
+- Settings resolve flag > `FAIG_*` environment variable > settings file >
+  default, and the file is read in the python-dotenv format (quotes, `export`,
+  inline `#` comments, escapes in double quotes). `--env-file=path` works as
+  well as `--env-file path`.
+- `chat --json` prints a result (`result`, `status`, `text`, and the raw
+  `completion`), or a list of them with `--repeat`, instead of the bare completion.
+- The workshop's `lab.py` reads settings through `load_settings()`; the
+  `env.example` file is gone (`pyfortiaigate config init` replaces it).
+
+### Removed
+
+- `pyfortiaigate.cli.load_env` and `pyfortiaigate.cli.default_env_file`: use
+  `pyfortiaigate.settings.load_settings` and `default_settings_file`.
+
 ## [0.3.2] - 2026-10-15
 
 ### Added

@@ -6,9 +6,7 @@ workspace and virtual key, through calls a workspace member can make.
 ```bash
 python3 -m venv ~/faig-py && . ~/faig-py/bin/activate
 pip install "pyfortiaigate[cli]"
-mkdir -p ~/.config/pyfortiaigate
-cp env.example ~/.config/pyfortiaigate/.env    # then fill it in
-chmod 600 ~/.config/pyfortiaigate/.env
+pyfortiaigate config init     # asks for your address, login, workspace and key
 python 01_hello.py
 ```
 
@@ -21,7 +19,13 @@ python 01_hello.py
 | `05_spend_report.py` | usage and spend for your workspace, by model | FIXME |
 | `06_regex_playground.py` | try a regex detector without saving it | FIXME |
 
-The same settings file drives the command line:
+`scenarios.json` is the workshop's catalog of test prompts:
+
+```bash
+pyfortiaigate scenarios scenarios.json        # PASS or MISMATCH per case
+```
+
+The same settings drive the command line (`pyfortiaigate config` shows them):
 
 ```bash
 pyfortiaigate dashboard

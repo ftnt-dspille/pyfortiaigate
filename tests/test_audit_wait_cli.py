@@ -11,7 +11,7 @@ from urllib.parse import parse_qs
 import pytest
 
 from pyfortiaigate import FortiAIGate
-from pyfortiaigate.cli import load_env, table
+from pyfortiaigate.cli import table
 
 from .conftest import FakeFaig, Seen, run
 
@@ -206,11 +206,12 @@ def test_cli_chat(
 ) -> None:
     blocked = {"choices": [{"message": {"content": "no"}, "finish_reason": "content_filter"}]}
     cli_env.answer("POST", "/ai/openai/v1/chat/completions", (200, blocked))
-    code, out, _ = run(capsys, "chat", "--key", "faig_x", "--model", "m", "hi")
-    assert (code, out.strip()) == (0, "BLOCKED: no")
+    code, out, _ = run(capsys, "--plain", "chat", "--key", "faig_x", "--model", "m", "hi")
+    assert code == 3  # blocked
+    assert out.splitlines() == ["HTTP 200 · m · BLOCKED by a guardrail", "no"]
     monkeypatch.setenv("FAIG_KEY", "faig_env")
     code, out, _ = run(capsys, "--json", "chat", "--model", "m", "hi")
-    assert json.loads(out) == blocked
+    assert json.loads(out)["completion"] == blocked
     assert cli_env.calls("POST", "/ai/openai/v1/chat/completions")[-1].headers["authorization"] == (
         "Bearer faig_env"
     )
@@ -226,7 +227,7 @@ def test_cli_errors(
     monkeypatch.delenv("FAIG_URL")
     code, _, err = run(capsys, "whoami")
     assert code == 2
-    assert "set FAIG_URL" in err
+    assert "no FAIG_URL" in err
 
 
 def test_cli_reads_env_file_and_insecure(
@@ -247,7 +248,7 @@ def test_cli_reads_env_file_and_insecure(
     assert code == 0
     login = cli_env.calls("POST", "/api/v1/login")[0]
     assert login.body["username"] == "admin"  # the shell wins over the file
-    assert "PATH_FROM_FILE" not in os.environ  # only FAIG_* keys are read
+    assert "PATH_FROM_FILE" not in os.environ  # nothing read is exported
 
 
 def test_cli_ignores_a_dotenv_it_was_not_given(
@@ -257,7 +258,7 @@ def test_cli_ignores_a_dotenv_it_was_not_given(
     Path(".env").write_text("FAIG_URL=https://elsewhere.example.com\n")
     code, _, err = run(capsys, "whoami")
     assert code == 2
-    assert "set FAIG_URL" in err
+    assert "no FAIG_URL" in err
 
 
 def _home_settings(tmp_path: Path, text: str, mode: int = 0o600) -> Path:
@@ -309,10 +310,8 @@ def test_cli_named_file_replaces_the_home_one(
     cli_env.answer("GET", "/api/v1/user", (200, {"ok": True}))
     monkeypatch.setenv("FAIG_ENV_FILE", str(named))
     assert run(capsys, "whoami")[0] == 0
-    monkeypatch.delenv("FAIG_URL")
     monkeypatch.delenv("FAIG_ENV_FILE")
     assert run(capsys, "--env-file", str(named), "whoami")[0] == 0
-    assert os.environ["FAIG_URL"] == cli_env.url
 
 
 def test_cli_missing_faig_env_file(
@@ -328,11 +327,6 @@ def test_cli_missing_env_file(cli_env: FakeFaig, capsys: pytest.CaptureFixture[s
     code, _, err = run(capsys, "--env-file", "absent.env", "whoami")
     assert code == 2
     assert "no settings file absent.env" in err
-
-
-def test_load_env_missing_file(tmp_path: Path) -> None:
-    with pytest.raises(FileNotFoundError):
-        load_env(tmp_path / "absent.env")
 
 
 def test_table_formats_values() -> None:

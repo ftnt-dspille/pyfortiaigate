@@ -1,14 +1,10 @@
 """``pyfortiaigate`` on the command line: quick looks at a FortiAIGate without
 writing a script. Read-only apart from ``chat`` (one gateway request).
 
-Connection settings come from the environment (FAIG_URL plus FAIG_TOKEN or
-FAIG_USERNAME/FAIG_PASSWORD, FAIG_CA_BUNDLE, FAIG_VERIFY_TLS), then from a
-settings file whose FAIG_* lines fill in what the shell does not set: the one
-``--env-file`` names, else ``FAIG_ENV_FILE``, else your own
-``~/.config/pyfortiaigate/.env`` when it exists. A ``.env`` in whatever
-directory you happen to be in is never read, so it cannot redirect your
-credentials. ``FAIG_WS`` is the default ``--ws`` and ``FAIG_KEY`` the default
-``--key``.
+Settings resolve flag > ``FAIG_*`` environment variable > settings file >
+default (see ``pyfortiaigate.settings``). ``config init`` writes the settings
+file for you, and ``config`` shows each value and where it came from.
+``FAIG_WS`` is the default ``--ws`` and ``FAIG_KEY`` the default ``--key``.
 
 With the ``[cli]`` extra (``pip install "pyfortiaigate[cli]"``) a terminal gets
 coloured tables, panels and bar charts; pipes always get plain text.
@@ -42,47 +38,55 @@ from .client import (
     blocked,
     breakdown_items,
     items,
+    origin,
     rank_items,
     regex_detector_body,
 )
+from .settings import (
+    KNOWN,
+    Settings,
+    default_settings_file,
+    load_settings,
+    write_settings,
+)
+
+PROG = (
+    os.path.basename(sys.argv[0])
+    if os.path.basename(sys.argv[0]) in ("faig", "pyfortiaigate")
+    else "faig"
+)
+"""The command's name in messages: what you typed, else ``faig``."""
+
+CATALOG = Path(__file__).with_name("data") / "scenarios.json"
+"""The workshop's scenario catalog, shipped with the package: the default for ``scenarios``."""
+
+# How `faig --help` lists the commands: by task, in the order a newcomer needs them.
+GROUPS = (
+    ("Get started", ("config", "whoami", "check-key", "models")),
+    ("Send prompts through the gateway", ("chat", "scenarios")),
+    ("Test detectors without a model", ("scan", "try-regex")),
+    (
+        "Your setup",
+        ("guardrails", "detectors", "builtins", "policies", "keys", "workspaces", "members"),
+    ),
+    (
+        "Traffic, blocks and spend",
+        ("dashboard", "logs", "log", "usage", "cost", "trend", "breakdown", "audit"),
+    ),
+    ("Appliance", ("licenses",)),
+)
 
 
-def load_env(path: Path) -> None:
-    """FAIG_*=value lines from ``path`` into the environment; the shell wins
-    and other keys are ignored."""
-    if not path.is_file():
-        raise FileNotFoundError(f"no settings file {path}")
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip().removeprefix("export ").strip()
-        value = value.strip().strip("'\"")
-        if key.startswith("FAIG_") and value and key not in os.environ:
-            os.environ[key] = value
+def _version() -> str:
+    from . import __version__
+
+    return __version__
 
 
-def default_env_file() -> Path:
-    """The settings file read when ``--env-file`` is not given: ``FAIG_ENV_FILE``,
-    else ``$XDG_CONFIG_HOME/pyfortiaigate/.env`` (``~/.config/pyfortiaigate/.env``)."""
-    named = os.environ.get("FAIG_ENV_FILE")
-    if named:
-        return Path(named).expanduser()
-    base = os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config"
-    return Path(base) / "pyfortiaigate" / ".env"
-
-
-def _settings_file(argv: Sequence[str]) -> Path | None:
-    """The file to read: a named one (``--env-file``, ``FAIG_ENV_FILE``) must
-    exist; the default one is optional."""
-    named = next((argv[i + 1] for i, a in enumerate(argv[:-1]) if a == "--env-file"), None)
-    if named:
-        return Path(named)
-    path = default_env_file()
-    if os.environ.get("FAIG_ENV_FILE") or path.is_file():
-        return path
-    return None
+def _tilde(path: Path | str) -> str:
+    """A path for display: ``~/...`` under your home folder."""
+    text, home = str(path), str(Path.home())
+    return "~" + text[len(home) :] if text == home or text.startswith(home + os.sep) else text
 
 
 def table(rows: Iterable[Mapping[str, Any]], columns: Sequence[str]) -> str:
@@ -671,20 +675,232 @@ def _marked(text: str, spans: Iterable[Mapping[str, Any]], plain: bool) -> list[
     return [(f"[{t}]" if style == "hit" else t, None) for t, style in line.parts]
 
 
-def cmd_chat(c: FortiAIGate, args: argparse.Namespace) -> Page | None:
-    out = c.chat_completion(
-        args.key, args.model, [{"role": "user", "content": args.text}], max_tokens=args.max_tokens
-    )
+# -- the gateway: chat and scenarios -------------------------------------------------------
+# Exit status of chat and scenarios: 0 = answered / every case matched, 3 = a guardrail
+# blocked / a case did not match, 1 = the gateway refused a request (key, rate limit,
+# model) or another error, so no guardrail ran.
+BLOCKED_EXIT = 3
+
+# Gateway statuses that mean the request never reached a guardrail.
+REFUSED_HINTS = {
+    401: "the key is wrong or revoked",
+    403: "the key may not do this",
+    404: "the model is not available to this key",
+    429: "rate limited: wait a minute",
+    502: "the gateway cannot reach the model",
+    503: "the gateway cannot reach the model",
+    504: "the gateway timed out waiting for the model",
+}
+
+
+def _send(
+    c: FortiAIGate,
+    key: str,
+    model: str,
+    text: str,
+    max_tokens: int | None,
+    temperature: float | None,
+) -> dict[str, Any]:
+    """One prompt through the gateway, as a result row: ``result`` is answered,
+    blocked or refused; ``status`` the HTTP status; ``text`` the answer, the block
+    message or why the gateway refused."""
+    msgs = [{"role": "user", "content": text}]
+    try:
+        out = c.chat_completion(key, model, msgs, max_tokens=max_tokens, temperature=temperature)
+    except FaigError as e:
+        err = e.data.get("error") if isinstance(e.data, dict) else None
+        msg = err.get("message") if isinstance(err, dict) else None
+        reason = str(msg or REFUSED_HINTS.get(e.status) or e)
+        return {"result": "refused", "status": e.status, "code": e.code, "text": reason}
     choice = (out.get("choices") or [{}])[0]
-    content = str((choice.get("message") or {}).get("content"))
-    stopped = blocked(out)
-    if not v.use_rich(plain=args.plain):
-        return Page(out, [Line.of(("BLOCKED: " if stopped else "") + content)])
+    content = str((choice.get("message") or {}).get("content") or "")
     usage = out.get("usage") or {}
-    title = f"{args.model} · {'BLOCKED by a guardrail' if stopped else 'answered'}"
-    if usage:
-        title += f" · {usage.get('total_tokens', 0)} tokens"
-    return Page(out, [Panel(title, [Line.of(content)], style="bad" if stopped else "good")])
+    return {
+        "result": "blocked" if blocked(out) else "answered",
+        "status": 200,
+        "text": content,
+        "tokens": usage.get("total_tokens"),
+        "completion": out,
+    }
+
+
+def _model_for(c: FortiAIGate, args: argparse.Namespace) -> str:
+    """--model, else FAIG_MODEL, else the first model the key may call."""
+    if args.model:
+        return str(args.model)
+    models = c.available_models(args.key)
+    if not models:
+        raise ValueError("this key may call no model; pass --model")
+    return models[0]
+
+
+RESULT_STYLE = {"answered": "good", "blocked": "bad", "refused": "warn"}
+
+
+def cmd_chat(c: FortiAIGate, args: argparse.Namespace) -> Page:
+    """Send a prompt (``--repeat N`` times). Exit 0 answered, 3 blocked, 1 refused."""
+    model = _model_for(c, args)
+    since = int(time.time() * 1000)
+    rows = []
+    for n in range(1, max(1, args.repeat) + 1):
+        row = _send(c, args.key, model, args.text, args.max_tokens, args.temperature)
+        rows.append({"n": n, **row})
+    results = {r["result"] for r in rows}
+    status = 1 if "refused" in results else BLOCKED_EXIT if "blocked" in results else 0
+    data: Any = rows if args.repeat > 1 else rows[0]
+    if args.repeat > 1:
+        counts = Counter(r["result"] for r in rows)
+        summary = ", ".join(
+            f"{counts[k]} {k}" for k in ("answered", "blocked", "refused") if counts[k]
+        )
+        cols = [
+            Col("#", "n", right=True, style="dim"),
+            Col("HTTP", "status", style=lambda s: "good" if s == 200 else "warn"),
+            Col("Result", "result", style=lambda r: RESULT_STYLE.get(r)),
+            Col("Answer or reason", lambda r: _clip(r["text"], 70)),
+        ]
+        blocks: list[Any] = [Table(rows, cols, title=f"{model} · {summary}")]
+    else:
+        r = rows[0]
+        head = (
+            f"HTTP {r['status']} · {model} · "
+            + {
+                "answered": "answered",
+                "blocked": "BLOCKED by a guardrail",
+                "refused": "refused by the gateway",
+            }[r["result"]]
+        )
+        if r.get("tokens"):
+            head += f" · {r['tokens']} tokens"
+        why = _why(c, args, since) if r["result"] == "blocked" and args.why else []
+        if not v.use_rich(plain=args.plain):
+            top = Lines([Line.of(head, RESULT_STYLE[r["result"]]), Line.of(r["text"])])
+            blocks = [top, *why]
+        else:
+            blocks = [Panel(head, [Line.of(r["text"]), *why], style=RESULT_STYLE[r["result"]])]
+    return Page(data, blocks, exit=status)
+
+
+def _why(c: FortiAIGate, args: argparse.Namespace, since: int) -> list[Any]:
+    """What blocked the prompt, from its traffic log record (it lands a few
+    seconds after the request; reading it needs a login and a workspace)."""
+    ws = _ws(args)
+    if not ws:
+        return [Line.of("(--why needs your workspace: set FAIG_WS or pass --ws)", "dim")]
+    try:
+        name = c.virtual_key(args.key, ws).get("keyName")
+        found = c.wait_for_traffic(
+            since, filters={"virtual_key": name, "verdict": "Block"}, timeout=45, ws_id=ws
+        )
+        rec = c.traffic_log(str(found[0].get("uuid")), ws)
+    except (FaigError, TimeoutError, ValueError) as e:
+        return [Line.of(f"(no traffic log record yet: {e})", "dim")]
+    hits = _hits(rec)
+    if not hits:
+        return [Line.of("(the record names no detector)", "dim")]
+    cols = [
+        Col("Side", "side", style="dim"),
+        Col("Detector", "detectorName", style="bad"),
+        Col("Details", "details"),
+    ]
+    return [Table(hits, cols, title="Blocked by")]
+
+
+def _load_catalog(path: str) -> list[dict[str, Any]]:
+    p = Path(path).expanduser()
+    if not p.is_file():
+        raise FileNotFoundError(f"no scenario catalog {path}")
+    data = json.loads(p.read_text())
+    cases = data.get("scenarios", data) if isinstance(data, dict) else data
+    if not isinstance(cases, list) or not all(
+        isinstance(x, dict) and x.get("prompt") and x.get("expect") in ("blocked", "allowed")
+        for x in cases
+    ):
+        raise ValueError(f"{path}: want a list of cases with a prompt and expect: blocked|allowed")
+    return cases
+
+
+def cmd_scenarios(c: FortiAIGate, args: argparse.Namespace) -> Page:
+    """Send each catalog prompt and compare blocked/allowed with its ``expect``.
+    Exit 0 every case matched, 3 a case did not, 1 the gateway refused a request."""
+    cases = _load_catalog(args.catalog)
+    if args.use_case:
+        q = args.use_case.lower()
+        cases = [
+            x
+            for x in cases
+            if q in str(x.get("use_case", "")).lower() or q in str(x.get("ui_feature", "")).lower()
+        ]
+    if args.scanner:
+        cases = [x for x in cases if str(x.get("scanner", "")).lower() == args.scanner.lower()]
+    if not cases:
+        every = _load_catalog(args.catalog)
+        names = sorted({str(x.get("use_case")) for x in every if x.get("use_case")})
+        raise ValueError(f"no case matches; --use-case is one of: {', '.join(names)}")
+    model = _model_for(c, args)
+    rows = []
+    for x in cases:
+        # temperature 0: the same case gets the same answer on every run, so an
+        # output rule always has the same text to match.
+        r = _send(c, args.key, model, str(x["prompt"]), None, 0.0)
+        got = {"answered": "allowed", "blocked": "blocked"}.get(r["result"], "error")
+        verdict = "ERROR" if got == "error" else "PASS" if got == x["expect"] else "MISMATCH"
+        rows.append(
+            {
+                "name": x.get("name") or "-",
+                "use_case": x.get("use_case") or "-",
+                "expect": x["expect"],
+                "got": got,
+                "verdict": verdict,
+                "status": r["status"],
+                "detail": r["text"] if got == "error" else "",
+                "prompt": x["prompt"],
+                "answer": r["text"] if got != "error" else "",
+            }
+        )
+    counts = Counter(r["verdict"] for r in rows)
+    status = 1 if counts["ERROR"] else BLOCKED_EXIT if counts["MISMATCH"] else 0
+    style = {"PASS": "good", "MISMATCH": "bad", "ERROR": "warn"}
+    cols = [
+        Col("Case", "name", style="title", wrap=False),
+        Col("Use case", "use_case"),
+        Col("Expect", "expect", style="dim"),
+        Col("Got", "got"),
+        Col("Verdict", "verdict", style=lambda x: style.get(x)),
+    ]
+    if counts["ERROR"]:
+        cols.append(Col("Why", lambda r: _clip(r["detail"], 50), style="warn"))
+    summary = f"{counts['PASS']}/{len(rows)} PASS"
+    if counts["MISMATCH"]:
+        summary += f", {counts['MISMATCH']} MISMATCH"
+    if counts["ERROR"]:
+        summary += f", {counts['ERROR']} ERROR"
+    blocks: list[Any] = [Table(rows, cols, title=f"{model} · {summary}")]
+    if args.verbose:
+        for r in rows:
+            blocks.append(
+                Fields(
+                    [
+                        ("Case", str(r["name"]), "title"),
+                        ("Sent", _clip(r["prompt"], 300), None),
+                        ("Got", _clip(r["answer"] or r["detail"], 300), "dim"),
+                    ]
+                )
+            )
+    if counts["ERROR"]:
+        blocks.append(
+            Line.of(
+                "ERROR: the gateway refused the request, so no guardrail ran (key, URL or model).",
+                "warn",
+            )
+        )
+    elif counts["MISMATCH"]:
+        blocks.append(
+            Line.of(
+                "MISMATCH: the guardrails are not yet set up the way that use case needs.", "bad"
+            )
+        )
+    return Page({"summary": dict(counts), "cases": rows}, blocks, exit=status)
 
 
 def cmd_licenses(c: FortiAIGate, args: argparse.Namespace) -> Page:
@@ -834,26 +1050,193 @@ def cmd_dashboard(c: FortiAIGate, args: argparse.Namespace) -> Page:
     )
 
 
+# -- config: the settings file, written for you ------------------------------------------
+def _ask(label: str, current: str | None, secret: bool = False) -> str | None:
+    """One prompt; Enter keeps the current value."""
+    import getpass
+
+    shown = ("(set)" if secret else current) if current else ""
+    prompt = f"{label}{f' [{shown}]' if shown else ''}: "
+    answer = (getpass.getpass(prompt) if secret else input(prompt)).strip()
+    return answer or current
+
+
+def _target(args: argparse.Namespace) -> Path:
+    """The file config writes: --env-file, else FAIG_ENV_FILE, else the default one."""
+    return Path(args.env_file).expanduser() if args.env_file else default_settings_file()
+
+
+def cmd_config_list(s: Settings, args: argparse.Namespace) -> Page:
+    known = [k.name for k in KNOWN]
+    names = known + sorted(n for n in s if n not in known)
+    path = s.file or _target(args)
+
+    def origin_of(n: str) -> str:
+        src = s.source(n) or "-"
+        return "settings file" if src == str(path) else src
+
+    rows = [
+        {"setting": n, "value": s.masked(n) or "-", "from": origin_of(n)}
+        for n in names
+        if n in s or getattr(args, "all", False)
+    ]
+    note = f"Settings file: {_tilde(path)}" + ("" if path.is_file() else " (not created yet)")
+    cols = [Col("Setting", "setting", style="title"), Col("Value", "value"), Col("From", "from")]
+    blocks: list[Any] = [Line.of(note)]
+    if rows:
+        blocks.append(Table(rows, cols))
+    else:
+        blocks.append(Line.of(f"Nothing is set: run `{PROG} config init`."))
+    return Page({"file": str(path), "settings": rows}, blocks)
+
+
+def cmd_config_path(s: Settings, args: argparse.Namespace) -> Page:
+    path = s.file or _target(args)
+    return Page({"file": str(path), "exists": path.is_file()}, [Line.of(str(path))])
+
+
+def _setting_name(raw: str) -> str:
+    name = raw.upper()
+    if not name.startswith("FAIG_") or name == "FAIG_ENV_FILE":
+        raise ValueError(f"{raw}: settings are FAIG_* names (see `config list --all`)")
+    return name
+
+
+def cmd_config_set(s: Settings, args: argparse.Namespace) -> Page:
+    name = _setting_name(args.name)
+    value = args.value
+    if value is None:
+        if not sys.stdin.isatty():
+            value = sys.stdin.readline().rstrip("\r\n")
+        else:
+            value = _ask(name, None, secret=any(k.name == name and k.secret for k in KNOWN))
+    if not value:
+        raise ValueError(f"give a value: config set {name} <value> (or config unset {name})")
+    path = write_settings(_target(args), {name: value})
+    return Page({"file": str(path), "set": name}, [Line.of(f"{name} saved to {_tilde(path)}")])
+
+
+def cmd_config_unset(s: Settings, args: argparse.Namespace) -> Page:
+    name = _setting_name(args.name)
+    path = _target(args)
+    if path.is_file():
+        write_settings(path, {name: None})
+    return Page(
+        {"file": str(path), "unset": name}, [Line.of(f"{name} removed from {_tilde(path)}")]
+    )
+
+
+_INIT = (
+    ("FAIG_URL", "FortiAIGate address, as in your browser (https://...)", "init_url", False),
+    ("FAIG_USERNAME", "Username", "init_username", False),
+    ("FAIG_PASSWORD", "Password", None, True),
+    ("FAIG_WS", "Workspace (Enter for none)", "init_ws", False),
+    ("FAIG_KEY", "Virtual key secret, faig_... (Enter for none)", "init_key", True),
+)
+
+
+def cmd_config_init(s: Settings, args: argparse.Namespace) -> Page:
+    """Ask for each connection setting (Enter keeps what is there), log in with
+    them, and write the settings file (mode 600). Flags answer without asking."""
+    tty = sys.stdin.isatty() and not args.password_stdin
+    got: dict[str, str | None] = {}
+    for name, label, flag, secret in _INIT:
+        given = getattr(args, flag) if flag else None
+        if name == "FAIG_URL" and given is None:
+            given = args.url  # pyfortiaigate --url ... config init
+        if given is not None:
+            got[name] = given
+        elif name == "FAIG_PASSWORD" and args.password_stdin:
+            got[name] = sys.stdin.readline().rstrip("\r\n")
+        elif tty:
+            got[name] = _ask(label, s.get(name), secret=secret)
+        else:
+            got[name] = s.get(name)
+    if args.insecure or args.init_insecure:
+        got["FAIG_VERIFY_TLS"] = "false"
+    elif tty and "FAIG_VERIFY_TLS" not in s:
+        answer = input("Skip TLS verification (a self-signed lab certificate)? [y/N]: ")
+        got["FAIG_VERIFY_TLS"] = "false" if answer.strip().lower() in ("y", "yes") else None
+    if not got.get("FAIG_URL"):
+        raise ValueError("FAIG_URL is required: pass --url, or run config init in a terminal")
+    got["FAIG_URL"] = origin(got["FAIG_URL"] or "")  # the browser address minus /ui...
+    merged = {**dict(s), **{k: x for k, x in got.items() if x}}
+    checks = [] if args.no_verify else _check_settings(merged, got)
+    path = write_settings(_target(args), {k: (x or None) for k, x in got.items()})
+    blocks: list[Any] = [Fields(checks)] if checks else []
+    blocks.append(Line.of(f"Saved to {_tilde(path)} (readable only by you)"))
+    return Page({"file": str(path), "checks": [list(c[:2]) for c in checks]}, blocks)
+
+
+def _check_settings(
+    env: Mapping[str, str], got: dict[str, str | None]
+) -> list[tuple[str, str, str]]:
+    """Log in with the new settings and test the key. A failed login raises, so a
+    wrong password is never saved; a refused key or unknown workspace is reported.
+    A valid key's model goes into ``got`` as FAIG_MODEL (unless one is set), so
+    ``chat`` never spends a rate-limited request looking it up."""
+    rows: list[tuple[str, str, str]] = []
+    with FortiAIGate.from_env(env) as c:
+        if env.get("FAIG_USERNAME") or env.get("FAIG_TOKEN"):
+            me = c.me()
+            rows.append(("Login", f"ok, {me.get('email') or me.get('username')}", "good"))
+            ws = env.get("FAIG_WS")
+            if ws:
+                mine = c.my_workspaces()
+                found = any(ws in (w.get("workspaceName"), w.get("workspaceId")) for w in mine)
+                text = ws if found else f"{ws}: not one of your workspaces"
+                rows.append(("Workspace", text, "good" if found else "bad"))
+        key = env.get("FAIG_KEY")
+        if key:
+            check = c.check_key(key)
+            ok = bool(check.get("valid"))
+            text = f"{'valid' if ok else 'refused'} (HTTP {check.get('http_status')})"
+            rows.append(("Key", text, "good" if ok else "bad"))
+            models = c.available_models(key) if ok else []
+            if models and not env.get("FAIG_MODEL"):
+                got["FAIG_MODEL"] = models[0]
+                rows.append(("Model", models[0], "num"))
+    return rows
+
+
+CONFIG_COMMANDS = {
+    "list": cmd_config_list,
+    "path": cmd_config_path,
+    "set": cmd_config_set,
+    "unset": cmd_config_unset,
+    "init": cmd_config_init,
+}
+
+
 # -- parser --------------------------------------------------------------------------
-def parser() -> argparse.ArgumentParser:
+def parser(settings: Mapping[str, str] | None = None) -> argparse.ArgumentParser:
+    """The argument parser; ``settings`` supply the defaults for --ws and --key."""
+    settings = os.environ if settings is None else settings
     p = argparse.ArgumentParser(
-        prog="pyfortiaigate",
-        description="Look at a FortiAIGate from the shell (settings from FAIG_* and"
-        " ~/.config/pyfortiaigate/.env; see --env-file).",
+        prog=PROG,
+        usage=f"{PROG} [options] COMMAND [command options]",
+        description="FortiAIGate from the shell: send prompts, test detectors, read"
+        " traffic, blocks and spend.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument(
         "--env-file",
-        help="settings file with FAIG_* lines"
+        help="settings file to use"
         " (default: FAIG_ENV_FILE, else ~/.config/pyfortiaigate/.env if it exists)",
     )
+    p.add_argument("--version", action="version", version=f"%(prog)s {_version()}")
+    p.add_argument("--url", help="FortiAIGate address (default: FAIG_URL)")
     p.add_argument("--json", action="store_true", help="print raw JSON")
     p.add_argument("--plain", action="store_true", help="plain text even in a terminal")
     p.add_argument("--insecure", action="store_true", help="skip TLS verification")
-    sub = p.add_subparsers(dest="command", required=True, metavar="COMMAND")
-    ws_default = os.environ.get("FAIG_WS")
-    key_default = os.environ.get("FAIG_KEY")
+    # The flat list is hidden: the epilog lists the commands grouped by task.
+    sub = p.add_subparsers(dest="command", metavar="COMMAND", help=argparse.SUPPRESS)
+    helps: dict[str, str] = {}
+    ws_default = settings.get("FAIG_WS")
+    key_default = settings.get("FAIG_KEY")
 
     def add(name: str, fn: Any, help: str, ws: bool = True) -> argparse.ArgumentParser:
+        helps[name] = help
         sp = sub.add_parser(name, help=help, description=help)
         sp.set_defaults(fn=fn)
         # --json / --plain work after the command too; SUPPRESS keeps the global value.
@@ -947,53 +1330,128 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("pattern", help="regular expression ((?i) at the start ignores case)")
     sp.add_argument("text", nargs="+", help="one or more lines to try")
     sp.add_argument("--action", default="block", choices=["block", "redact", "alert", "log"])
-    sp = add("chat", cmd_chat, "send one prompt through the gateway", ws=False)
-    key(sp, required=True)
-    sp.add_argument("--model", required=True)
-    sp.add_argument("--max-tokens", type=int, default=256)
-    sp.add_argument("text")
+
+    def gateway(sp: argparse.ArgumentParser) -> None:
+        key(sp, required=True)
+        sp.add_argument(
+            "--model",
+            default=settings.get("FAIG_MODEL"),
+            help="default: FAIG_MODEL, else the first model the key may call",
+        )
+
+    sp = add("chat", cmd_chat, "send a prompt through the gateway (exit 3 when blocked)")
+    gateway(sp)
+    sp.add_argument("--max-tokens", type=int, default=256, metavar="N", help="(default 256)")
+    sp.add_argument("--temperature", type=float, metavar="T")
+    sp.add_argument(
+        "--repeat", type=int, default=1, metavar="N", help="send it N times, one line each"
+    )
+    sp.add_argument("--why", action="store_true", help="on a block, name what matched (logs in)")
+    sp.add_argument("text", help="the prompt (quote it)")
+    sp = add("scenarios", cmd_scenarios, "run a catalog of prompts: PASS or MISMATCH per case")
+    gateway(sp)
+    sp.add_argument(
+        "catalog",
+        nargs="?",
+        default=str(CATALOG),
+        help="JSON file of cases: [{name, prompt, expect: blocked|allowed, ...}]"
+        " (default: the workshop catalog that comes with pyfortiaigate)",
+    )
+    sp.add_argument("--use-case", help="only cases whose use case matches (part of the name)")
+    sp.add_argument("--scanner", help="only cases for this scanner")
+    sp.add_argument("--verbose", "-v", action="store_true", help="show each prompt and answer")
     add("licenses", cmd_licenses, "appliance licenses", ws=False)
+    cfg = add("config", None, "show or write your settings file", ws=False)
+    csub = cfg.add_subparsers(dest="config", metavar="ACTION")
+    c_list = csub.add_parser("list", help="each setting, its value and where it came from")
+    c_list.add_argument("--all", action="store_true", help="also the settings that are not set")
+    csub.add_parser("path", help="the settings file in use")
+    c_init = csub.add_parser("init", help="ask for your settings, check them, save them")
+    # Own dests: a subparser default would otherwise overwrite the global --url.
+    c_init.add_argument("--url", dest="init_url", help="FortiAIGate address")
+    c_init.add_argument("--username", dest="init_username")
+    c_init.add_argument("--ws", dest="init_ws", help="your workspace")
+    c_init.add_argument("--key", dest="init_key", help="a virtual key secret (faig_...)")
+    c_init.add_argument(
+        "--insecure", dest="init_insecure", action="store_true", help="skip TLS verification"
+    )
+    c_init.add_argument(
+        "--password-stdin", action="store_true", help="read the password from stdin"
+    )
+    c_init.add_argument("--no-verify", action="store_true", help="save without logging in")
+    c_set = csub.add_parser("set", help="save one setting (no value: prompt, or read stdin)")
+    c_set.add_argument("name", help="e.g. FAIG_WS")
+    c_set.add_argument("value", nargs="?")
+    csub.add_parser("unset", help="remove one setting").add_argument("name")
+    width = max(len(n) for n in helps) + 2
+    listed = [n for _, names in GROUPS for n in names]
+    assert sorted(listed) == sorted(helps), "every command belongs to one help group"
+    lines = []
+    for title, names in GROUPS:
+        lines.append(f"{title}:")
+        lines += [f"  {n:<{width}}{helps[n]}" for n in names]
+        lines.append("")
+    lines.append(
+        f"Start with `{PROG} config init`. `{PROG} COMMAND --help` for a command's options."
+    )
+    p.epilog = "\n".join(lines)
     return p
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    # Read the settings file before building the parser: its defaults use FAIG_KEY/FAIG_WS.
-    env_file = _settings_file(argv)
-    if env_file:
-        try:
-            load_env(env_file)
-        except FileNotFoundError as e:
-            print(f"pyfortiaigate: {e}", file=sys.stderr)
-            return 2
-        if os.name == "posix" and env_file.stat().st_mode & 0o077:
-            print(
-                f"pyfortiaigate: warning: {env_file} is readable by other users"
-                f" (chmod 600 {env_file})",
-                file=sys.stderr,
-            )
-    args = parser().parse_args(argv)
-    if not os.environ.get("FAIG_URL"):
+    # The settings file supplies parser defaults (--ws, --key), so find it first.
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--env-file")
+    pre.add_argument("--url")
+    pre.add_argument("command", nargs="?")
+    early = pre.parse_known_args(argv)[0]
+    try:  # config init/set may create the file it is given
+        settings = load_settings(early.env_file, missing_ok=early.command == "config")
+    except FileNotFoundError as e:
+        print(f"{PROG}: {e}", file=sys.stderr)
+        return 2
+    path = settings.file
+    if path and path.is_file() and os.name == "posix" and path.stat().st_mode & 0o077:
         print(
-            "pyfortiaigate: set FAIG_URL (and FAIG_TOKEN or FAIG_USERNAME/FAIG_PASSWORD)",
+            f"{PROG}: warning: {_tilde(path)} is readable by other users"
+            f" (chmod 600 {_tilde(path)})",
             file=sys.stderr,
         )
-        return 2
-    if args.insecure:
-        os.environ["FAIG_VERIFY_TLS"] = "false"
+    p = parser(settings)
+    args = p.parse_args(argv)
+    if not args.command:  # bare `faig`: the grouped command list
+        p.print_help()
+        return 0
+    settings = settings.with_flags(
+        {"FAIG_URL": args.url, "FAIG_VERIFY_TLS": "false" if args.insecure else None}
+    )
     try:
-        with FortiAIGate.from_env() as c:
-            page = args.fn(c, args)
-    except (FaigError, LookupError, ValueError, TimeoutError) as e:
-        print(f"pyfortiaigate: {e}", file=sys.stderr)
+        if args.command == "config":
+            page = CONFIG_COMMANDS[args.config or "list"](settings, args)  # bare `config` lists
+        else:
+            if not settings.get("FAIG_URL"):
+                print(
+                    f"{PROG}: no FAIG_URL: run `{PROG} config init`, or set"
+                    " FAIG_URL (and FAIG_TOKEN or FAIG_USERNAME/FAIG_PASSWORD)",
+                    file=sys.stderr,
+                )
+                return 2
+            with FortiAIGate.from_env(settings) as c:
+                page = args.fn(c, args)
+    except (FaigError, LookupError, ValueError, TimeoutError, OSError) as e:
+        print(f"{PROG}: {e}", file=sys.stderr)
         return 1
+    except (KeyboardInterrupt, EOFError):
+        print(file=sys.stderr)
+        return 130
     if page is None:
         return 0
     if args.json:
         print(json.dumps(page.data, indent=2, default=str))
     else:
         v.render(page.blocks, plain=args.plain)
-    return 0
+    return page.exit
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -236,6 +236,8 @@ class Page:
 
     data: Any
     blocks: list[Block] = field(default_factory=list)
+    exit: int = 0
+    """The command's exit status (0 ok; see each command for the others)."""
 
 
 def highlight(text: str, spans: Iterable[Mapping[str, Any]]) -> Line:

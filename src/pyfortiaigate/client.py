@@ -1489,10 +1489,14 @@ class FortiAIGate:
         self._no_server_playground = False
 
     @classmethod
-    def from_env(cls, **kw: Any) -> FortiAIGate:
+    def from_env(cls, env: Mapping[str, str] | None = None, **kw: Any) -> FortiAIGate:
         """FAIG_URL plus FAIG_TOKEN or FAIG_USERNAME/FAIG_PASSWORD. FAIG_CA_BUNDLE
-        trusts a CA file; FAIG_VERIFY_TLS=false turns verification off."""
-        env = os.environ
+        trusts a CA file; FAIG_VERIFY_TLS=false turns verification off.
+
+        Reads ``os.environ`` unless ``env`` is given, such as
+        ``pyfortiaigate.settings.load_settings()`` (the environment plus your
+        settings file)."""
+        env = os.environ if env is None else env
         verify: bool | str = env.get("FAIG_CA_BUNDLE") or True
         if env.get("FAIG_VERIFY_TLS", "true").strip().lower() in ("0", "false", "no"):
             verify = False
