@@ -603,7 +603,13 @@ def cmd_scan(c: FortiAIGate, args: argparse.Namespace) -> Page:
         out = c.test_guardrail(args.text, guardrail_id=args.guardrail, ws_id=ws)
     names = _detector_names(c, ws)
     rows = [
-        {**r, "detector": names.get(r.get("detectorId")) or r.get("detectorId")}
+        {
+            **r,
+            "detector": names.get(r.get("detectorId")) or r.get("detectorId"),
+            "match": "untested"
+            if r.get("status") == "untested"
+            else ("hit" if r.get("matched") else "-"),
+        }
         for r in out.get("results") or []
     ]
     verdict = str(out.get("finalDisposition") or "pass")
@@ -611,9 +617,9 @@ def cmd_scan(c: FortiAIGate, args: argparse.Namespace) -> Page:
         Col("Detector", "detector", style="title"),
         Col(
             "Match",
-            "matched",
-            fmt=lambda m: "✔" if m else "·",
-            style=lambda m: "bad" if m else "dim",
+            "match",
+            fmt=lambda m: {"hit": "✔", "untested": "untested"}.get(m, "·"),
+            style=lambda m: "bad" if m == "hit" else "dim",
         ),
         Col("Action", "finalDisposition", style=v.verdict_style),
         Col("Score", "score", right=True),
@@ -626,7 +632,16 @@ def cmd_scan(c: FortiAIGate, args: argparse.Namespace) -> Page:
             ("   no model was called, no tokens spent", "dim"),
         ]
     )
-    return Page(out, [head, Table(rows, cols)])
+    blocks: list[Any] = [head, Table(rows, cols)]
+    if any(r["match"] == "untested" for r in rows):
+        blocks.append(
+            Line.of(
+                "Built-in detectors cannot be scanned offline on this FortiAIGate:"
+                " send the text through the gateway with `chat` to see what they do.",
+                "dim",
+            )
+        )
+    return Page(out, blocks)
 
 
 def cmd_try_regex(c: FortiAIGate, args: argparse.Namespace) -> Page:
@@ -639,7 +654,12 @@ def cmd_try_regex(c: FortiAIGate, args: argparse.Namespace) -> Page:
         mark = ("MATCH  ", "bad") if out.get("matched") else ("-      ", "dim")
         lines.append(Line([mark, *_marked(text, out.get("spans") or [], args.plain)]))
     matched = sum(1 for r in results if r.get("matched"))
-    summary = Line.of(f"{matched} of {len(results)} matched (nothing was saved)", "dim")
+    where = (
+        "matched locally: this FortiAIGate cannot test an unsaved detector"
+        if any(r.get("checkedLocally") for r in results)
+        else "nothing was saved"
+    )
+    summary = Line.of(f"{matched} of {len(results)} matched ({where})", "dim")
     return Page(results, [Lines(lines), summary])
 
 

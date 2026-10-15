@@ -400,6 +400,7 @@ A detector scan result.
 | `latencyMs` | int |  |
 | `scannedChars` | int |  |
 | `truncated` | bool |  |
+| `checkedLocally` | bool | True when `playground` matched a regex body locally (no server endpoint). |
 
 [](){#pyfortiaigate.client.GuardrailTest}
 [](){#pyfortiaigate.GuardrailTest}
@@ -425,7 +426,7 @@ A guardrail scan result: the overall outcome and one row per detector.
 | Field | Type | Meaning |
 |---|---|---|
 | `detectorId` | str |  |
-| `status` | str |  |
+| `status` | str | `untested` for a built-in detector a build cannot test offline. |
 | `matched` | bool |  |
 | `finalDisposition` | str \| None |  |
 | `score` | float |  |

@@ -648,11 +648,14 @@ class DetectorTest(TypedDict, total=False):
     latencyMs: int
     scannedChars: int
     truncated: bool
+    checkedLocally: bool
+    """True when ``playground`` matched a regex body locally (no server endpoint)."""
 
 
 class GuardrailTestResult(TypedDict, total=False):
     detectorId: str
     status: str
+    """``untested`` for a built-in detector a build cannot test offline."""
     matched: bool
     finalDisposition: str | None
     score: float
@@ -1481,6 +1484,9 @@ class FortiAIGate:
         self._opener = _KeepAliveOpener(self._ctx, self._jar)
         self._ws_ids: dict[str, str] = {}  # workspace name -> id
         self._builtin_cache: list[BuiltinDetector] | None = None
+        # Set once the appliance answers 404/405: later builds dropped both testers.
+        self._no_guardrail_tester = False
+        self._no_server_playground = False
 
     @classmethod
     def from_env(cls, **kw: Any) -> FortiAIGate:
@@ -1865,7 +1871,7 @@ class FortiAIGate:
             # A custom detector may carry a built-in's name or slug: refuse to
             # guess which one is meant.
             builtin = {
-                str(b["id"]) for b in self._builtins() if ref in (b.get("id"), b.get("name"))
+                str(b["id"]) for b in self._builtins(ws_id) if ref in (b.get("id"), b.get("name"))
             }
             if found and builtin:
                 raise ValueError(
@@ -1890,9 +1896,11 @@ class FortiAIGate:
             )
         return found.pop()
 
-    def _builtins(self) -> list[BuiltinDetector]:
+    def _builtins(self, ws_id: WsRef | None = None) -> list[BuiltinDetector]:
+        """The built-in catalogue, cached. A workspace member may only read the
+        workspace path, so it is used whenever a workspace is in play."""
         if self._builtin_cache is None:
-            self._builtin_cache = self.builtin_detectors()
+            self._builtin_cache = self.builtin_detectors(ws_id)
         return self._builtin_cache
 
     def resolve_detector(self, ref: Ref, ws_id: WsRef | None = None) -> str:
@@ -1962,15 +1970,35 @@ class FortiAIGate:
     ) -> DetectorTest:
         """Scan ``text`` with a detector BODY that need not be saved (the
         console's Playground): build it with ``regex_detector_body``,
-        ``dlp_detector_body`` or ``ai_detector_body``."""
+        ``dlp_detector_body`` or ``ai_detector_body``.
+
+        Builds without the unsaved-detector endpoint (it answers 404/405) can only
+        test a SAVED detector. There a regex body is matched locally, as the
+        console's own Playground does, and the result carries
+        ``checkedLocally: True``; a DLP or AI body raises ``FaigError``."""
         detector = {k: v for k, v in body.items() if k not in ("name", "description")}
         payload = {"input": text, "detector": detector}
-        if ws_id:
-            return cast(
-                DetectorTest,
-                self.post(f"/api/v1/workspaces/{self._ws(ws_id)}/detectors/test", payload),
+        path = (
+            f"/api/v1/workspaces/{self._ws(ws_id)}/detectors/test"
+            if ws_id
+            else "/api/v1/admin/detectors/test"
+        )
+        if not self._no_server_playground:
+            try:
+                return cast(DetectorTest, self.post(path, payload))
+            except FaigError as e:
+                if e.status not in (404, 405):
+                    raise
+                self._no_server_playground = True
+        if detector.get("detectorType") != "regex":
+            raise FaigError(
+                "POST",
+                path,
+                405,
+                "this FortiAIGate has no endpoint for testing an unsaved detector; "
+                "save it and use test_detector(), or test a regex body (matched locally)",
             )
-        return cast(DetectorTest, self.post("/api/v1/admin/detectors/test", payload))
+        return _match_regex_rules(text, detector.get("rules") or [])
 
     def test_detector(self, ws_id: WsRef, uuid: Ref, text: str) -> DetectorTest:
         """Scan text with a SAVED detector: ``matched``, ``finalDisposition``,
@@ -2091,11 +2119,18 @@ class FortiAIGate:
         deny_suspicious_characters: bool = False,
         ws_id: WsRef | None = None,
     ) -> GuardrailTest:
-        """Scan text through a guardrail without an LLM (the console's guardrail
-        tester). Pass ``detector_ids``, or ``guardrail_id`` to reuse a saved
-        guardrail's detectors and its denySuspiciousCharacters setting.
-        ``ws_id`` uses the workspace path, which a workspace member can call.
-        Returns ``finalDisposition`` plus a ``results`` row per detector."""
+        """Scan text through a guardrail without an LLM. Pass ``detector_ids``, or
+        ``guardrail_id`` to reuse a saved guardrail's detectors and its
+        denySuspiciousCharacters setting. ``ws_id`` uses the workspace path, which
+        a workspace member can call. Returns ``finalDisposition`` plus a
+        ``results`` row per detector.
+
+        Builds without the guardrail tester (it answers 404/405) are scanned one
+        CUSTOM detector at a time with the saved-detector test. Those builds
+        cannot test a built-in (Governance) detector offline: its row has
+        ``status: "untested"`` and only a real request through the gateway
+        (``chat_completion``) shows what it does. ``finalDisposition`` then
+        covers the custom detectors only."""
         if not detector_ids and not guardrail_id:
             raise ValueError("detector_ids or guardrail_id is required")
         ids: list[str] = []
@@ -2112,17 +2147,59 @@ class FortiAIGate:
             if ws_id
             else "/api/v1/admin/guardrails/test"
         )
-        return cast(
-            GuardrailTest,
-            self.post(
-                path,
+        if not self._no_guardrail_tester:
+            try:
+                return cast(
+                    GuardrailTest,
+                    self.post(
+                        path,
+                        {
+                            "input": text,
+                            "detectorIds": ids,
+                            "denySuspiciousCharacters": deny_suspicious_characters,
+                        },
+                    ),
+                )
+            except FaigError as e:
+                if e.status not in (404, 405):
+                    raise
+                self._no_guardrail_tester = True
+        results: list[GuardrailTestResult] = []
+        for did in ids:
+            if not _UUID.match(did):
+                results.append(
+                    {
+                        "detectorId": did,
+                        "status": "untested",
+                        "matched": False,
+                        "finalDisposition": None,
+                        "details": "built-in detector: no offline test on this "
+                        "FortiAIGate; send the text through the gateway",
+                    }
+                )
+                continue
+            one = (
+                f"/api/v1/workspaces/{self._ws(ws_id)}/detectors/{_q(did)}/test"
+                if ws_id
+                else f"/api/v1/admin/detectors/{_q(did)}/test"
+            )
+            r = cast(DetectorTest, self.post(one, {"input": text}))
+            results.append(
                 {
-                    "input": text,
-                    "detectorIds": ids,
-                    "denySuspiciousCharacters": deny_suspicious_characters,
-                },
-            ),
-        )
+                    "detectorId": did,
+                    "status": "tested",
+                    "matched": bool(r.get("matched")),
+                    "finalDisposition": r.get("finalDisposition"),
+                    "score": r.get("score", 0),
+                    "details": r.get("details", ""),
+                    "spans": r.get("spans") or [],
+                }
+            )
+        return {
+            "finalDisposition": _strongest(r.get("finalDisposition") for r in results),
+            "results": results,
+            "scannedChars": len(text),
+        }
 
     def ensure_guardrail(
         self,
@@ -3436,6 +3513,44 @@ def guardrail_body(
         "description": description or name,
         "detectorIds": list(detector_ids),
         "denySuspiciousCharacters": deny_suspicious_characters,
+    }
+
+
+_DISPOSITION_RANK = {"log": 1, "alert": 2, "redact": 3, "block": 4}
+
+
+def _strongest(dispositions: Iterable[str | None]) -> str | None:
+    """The disposition that wins: block > redact > alert > log."""
+    best: str | None = None
+    for d in dispositions:
+        if d and _DISPOSITION_RANK.get(d, 0) > _DISPOSITION_RANK.get(best or "", 0):
+            best = d
+    return best
+
+
+def _match_regex_rules(text: str, rules: Iterable[Mapping[str, Any]]) -> DetectorTest:
+    """Match a regex detector's flat ``rules`` against ``text`` locally, the
+    way the console's Playground does when the appliance cannot test an
+    unsaved body. Python's ``re`` stands in for the appliance's engine."""
+    spans: list[Span] = []
+    hits: list[str] = []
+    for rule in rules:
+        pattern = str(rule.get("pattern") or "")
+        found = [m for m in re.finditer(pattern, text) if m.end() > m.start()] if pattern else []
+        if found:
+            hits.append(str(rule.get("disposition") or "block"))
+            spans.extend({"start": m.start(), "end": m.end()} for m in found)
+    final = _strongest(hits)
+    return {
+        "matched": bool(hits),
+        "finalDisposition": final,
+        "score": 1.0 if hits else 0,
+        "details": f"Matched {len(hits)} pattern(s) ({final})" if hits else "",
+        "spans": sorted(spans, key=lambda sp: sp["start"]),
+        "latencyMs": 0,
+        "scannedChars": len(text),
+        "truncated": False,
+        "checkedLocally": True,
     }
 
 

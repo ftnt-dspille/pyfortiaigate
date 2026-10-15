@@ -17,8 +17,25 @@ All notable changes to this project are documented here. The format follows
   with model groups or per-model provider limits that a replacement could not
   inherit (`allow_uncopied`). Returns `Replaced`.
 
+### Fixed
+
+- `test_guardrail` and `faig scan` on builds without the guardrail tester: later
+  8.0.2 builds dropped `POST .../guardrails/test` (it answers 405). There the
+  guardrail is scanned one custom detector at a time with the saved-detector test
+  (`POST .../detectors/{uuid}/test`); a built-in detector cannot be tested offline
+  on those builds, so its row says `status: "untested"` and `faig scan` points at
+  `chat`. Builds that still have the tester use it, built-ins included.
+- `playground` and `faig try-regex` on builds without the unsaved-detector test
+  (`POST .../detectors/test`, also gone): a regex body is matched locally, as the
+  console's Playground does, and flagged `checkedLocally`; a DLP or AI body raises.
+- Resolving a detector by name inside a workspace read the org-only built-in
+  list, so a workspace member got HTTP 403 from `test_detector("<name>")` and
+  every other call that takes a detector name. It reads the workspace list now.
+
 ### Changed
 
+- Workshop `03_scan_first.py` scans with the student's own DLP detector
+  (`test_detector`), which every build can test without a model.
 - `key_id_from_secret` raises `ValueError` for anything but `faig_<32 hex>_...`
   instead of returning a made-up id.
 - A key name shared by several keys resolves to the single active one (a renewed

@@ -23,13 +23,11 @@ def _id() -> str:
 # -- resolution --------------------------------------------------------------------
 def test_detector_by_name_custom_and_builtin(faig: FortiAIGate, fake: FakeFaig) -> None:
     fake.answer("GET", f"{WS}/detectors", (200, [{"uuid": "d1", "name": "secrets"}]))
-    fake.answer(
-        "GET", "/api/v1/admin/built-in-detectors", (200, [{"id": "pii", "name": "PII Guard"}])
-    )
+    fake.answer("GET", f"{WS}/built-in-detectors", (200, [{"id": "pii", "name": "PII Guard"}]))
     assert faig.resolve_detector("secrets", "w1") == "d1"
     assert faig.resolve_detector("PII Guard", "w1") == "pii"
     assert faig.resolve_detector("pii", "w1") == "pii"
-    assert len(fake.calls("GET", "/api/v1/admin/built-in-detectors")) == 1  # cached
+    assert len(fake.calls("GET", f"{WS}/built-in-detectors")) == 1  # cached
     with pytest.raises(LookupError, match="no detector named 'nope' in workspace 'w1'"):
         faig.resolve_detector("nope", "w1")
 
@@ -137,7 +135,7 @@ def test_custom_detector_shadowing_a_builtin_is_ambiguous(
     faig: FortiAIGate, fake: FakeFaig
 ) -> None:
     fake.answer("GET", f"{WS}/detectors", (200, [{"uuid": "d1", "name": "pii"}]))
-    fake.answer("GET", "/api/v1/admin/built-in-detectors", (200, [{"id": "pii", "name": "PII"}]))
+    fake.answer("GET", f"{WS}/built-in-detectors", (200, [{"id": "pii", "name": "PII"}]))
     with pytest.raises(ValueError, match="names both a custom and a built-in detector"):
         faig.resolve_detector("pii", "w1")
     assert faig.resolve_detector({"id": "pii"}, "w1") == "pii"
