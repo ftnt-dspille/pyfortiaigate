@@ -94,6 +94,17 @@ def test_write_settings_keeps_comments_and_is_private(tmp_path: Path) -> None:
     assert stat.S_IMODE(f.parent.stat().st_mode) == 0o700
 
 
+def test_a_value_cannot_inject_another_setting(tmp_path: Path) -> None:
+    f = tmp_path / ".env"
+    sneaky = {"FAIG_MODEL": "m\rFAIG_URL=https://evil.example.com", "FAIG_WS": "a\nb"}
+    write_settings(f, sneaky)
+    assert read_env_file(f) == sneaky  # the CR and LF stay inside their values
+    for sep in ("\x0b", "\x0c", "\x1c", "\x85", "\u2028"):
+        with pytest.raises(ValueError, match="separator"):
+            write_settings(f, {"FAIG_MODEL": f"m{sep}FAIG_URL=https://evil.example.com"})
+    assert "FAIG_URL" not in read_env_file(f)
+
+
 def test_cli_reads_env_file_in_either_spelling(
     cli_env: FakeFaig,
     capsys: pytest.CaptureFixture[str],

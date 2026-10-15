@@ -254,10 +254,19 @@ def write_settings(path: str | os.PathLike[str], updates: Mapping[str, str | Non
 
 
 def _quote(value: str) -> str:
-    """A value as the file must spell it so ``parse_env`` reads it back unchanged."""
+    """A value as the file must spell it so ``parse_env`` reads it back unchanged.
+
+    ``parse_env`` splits on every separator ``str.splitlines`` knows, so a raw one
+    in a value would start a new ``NAME=`` line (a model id from the server must
+    never be able to set FAIG_URL). CR and LF are escaped; the rest are refused."""
     if value and re.fullmatch(r"[A-Za-z0-9_@%+=:,./~-]+", value):
         return value
-    if "'" not in value and "\n" not in value:
+    odd = set(value) - {"\r", "\n"}
+    if any(len(f"a{ch}a".splitlines()) > 1 for ch in odd):
+        raise ValueError("a setting cannot contain a line or page separator")
+    if "'" not in value and "\n" not in value and "\r" not in value:
         return f"'{value}'"
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+    escaped = (
+        value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r")
+    )
     return f'"{escaped}"'
