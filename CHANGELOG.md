@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-16
+
 ### Added
 
 - A default workspace: `FortiAIGate(..., workspace=)` (or `FAIG_WORKSPACE`)
