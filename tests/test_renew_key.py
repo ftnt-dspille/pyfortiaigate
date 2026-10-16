@@ -82,6 +82,46 @@ def test_an_active_key_past_its_expiry_counts_as_expired(faig: FortiAIGate, fake
     assert faig.renew_virtual_key(OLD).method == "extended_and_rotated"
 
 
+def test_a_failed_rotate_puts_the_original_expiry_back(faig: FortiAIGate, fake: FakeFaig) -> None:
+    _serve(fake, _old())
+    fake.routes[("POST", f"{OLD_PATH}/rotate")] = [(500, {"error": "boom"})]
+    with pytest.raises(Exception, match="500"):
+        faig.renew_virtual_key(OLD)
+    puts = [c.body["expiresAt"] for c in fake.calls("PUT", OLD_PATH)]
+    assert len(puts) == 2
+    assert puts[1] == "2026-01-31T00:00:00.000Z"  # the old secret is dead again
+    assert fake.calls("POST", f"{OLD_PATH}/revoke") == []
+
+
+def test_a_failed_restore_revokes_the_key(faig: FortiAIGate, fake: FakeFaig) -> None:
+    _serve(fake, _old())
+    fake.routes[("POST", f"{OLD_PATH}/rotate")] = [(500, {"error": "boom"})]
+    fake.answer("POST", f"{OLD_PATH}/revoke", (200, {"id": OLD, "status": "revoked"}))
+    calls = {"n": 0}
+    real_put = faig.put
+
+    def put(path: str, body: object = None) -> object:
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("restore refused")
+        return real_put(path, body)
+
+    faig.put = put  # type: ignore[method-assign]
+    with pytest.raises(Exception, match="500"):
+        faig.renew_virtual_key(OLD)
+    assert len(fake.calls("POST", f"{OLD_PATH}/revoke")) == 1
+
+
+@pytest.mark.parametrize("days", [0, -5, 4000])
+def test_an_out_of_range_lifetime_changes_nothing(
+    faig: FortiAIGate, fake: FakeFaig, days: float
+) -> None:
+    _serve(fake, _old())
+    with pytest.raises(ValueError, match="expires_in_days"):
+        faig.renew_virtual_key(OLD, expires_in_days=days)
+    assert fake.calls("PUT", OLD_PATH) == []
+
+
 @pytest.mark.parametrize("status", ["revoked", "suspended"])
 def test_a_revoked_or_suspended_key_is_left_alone(
     faig: FortiAIGate, fake: FakeFaig, status: str

@@ -2539,15 +2539,33 @@ class FortiAIGate:
             )
         new_expiry = None
         if expired:
-            new_expiry = (now + dt.timedelta(days=float(expires_in_days))).strftime(
-                "%Y-%m-%dT%H:%M:%S.000Z"
-            )
+            days = float(expires_in_days)
+            if not 0 < days <= 3650:
+                raise ValueError(f"expires_in_days must be between 0 and 3650, not {days:g}")
+            new_expiry = (now + dt.timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
             self.update_virtual_key(kid, expires_at=new_expiry, ws_id=ws_id)
-        rotated = self.rotate_virtual_key(kid, ws_id)
+        try:
+            rotated = self.rotate_virtual_key(kid, ws_id)
+        except Exception:
+            # The extend made the OLD secret work again; never leave it that way.
+            if expired:
+                self._restore_expiry(kid, old.get("expiresAt"), ws_id)
+            raise
         method = "extended_and_rotated" if expired else "rotated"
         return Renewed(
             dict(rotated), method, secret_from_response(rotated), kid, status, new_expiry
         )
+
+    def _restore_expiry(self, kid: str, expires_at: str | None, ws_id: WsRef | None) -> None:
+        """Put back an expired key's original expiry (8.0.2 accepts a past date and
+        the key is expired again); revoke it if that fails, so the old secret is
+        never left working."""
+        try:
+            if not expires_at:
+                raise ValueError("no original expiry to restore")
+            self.update_virtual_key(kid, expires_at=expires_at, ws_id=ws_id)
+        except Exception:
+            self.revoke_virtual_key(kid, "Renewal failed after the expiry was extended", ws_id)
 
     def delete_virtual_key(self, key_id: Ref, ws_id: WsRef | None = None) -> None:
         self.delete(self._key_path(key_id, ws_id))
