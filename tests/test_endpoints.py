@@ -264,7 +264,8 @@ def test_update_virtual_key_merges_into_the_current_record(
     )
     faig.update_virtual_key("k1", tpm=100, policy_ids=["p1"])
     put = fake.calls("PUT", "/api/v1/admin/virtual-keys/k1")[0]
-    assert put.body == {"keyName": "k", "rpm": 5, "tpm": 100, "policyIds": ["p1"]}
+    # the org-assigned p0 is sent back: leaving it out reads as detaching it (422)
+    assert put.body == {"keyName": "k", "rpm": 5, "tpm": 100, "policyIds": ["p0", "p1"]}
 
 
 def test_make_workspace_admin_keeps_other_memberships(faig: FortiAIGate, fake: FakeFaig) -> None:

@@ -239,4 +239,4 @@ def test_cli_reads(ws: str, state: dict[str, Any], capsys: pytest.CaptureFixture
     assert rows
     assert {r["keyAlias"] for r in rows} == {f"{RUN}-key"}
     assert main(["scan", "--ws", ws, "--guardrail", f"{RUN}-gr", SECRET_TEXT]) == 0
-    assert capsys.readouterr().out.startswith("finalDisposition: block")
+    assert capsys.readouterr().out.startswith("Verdict: BLOCK")

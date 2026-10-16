@@ -713,6 +713,7 @@ class VirtualKey(TypedDict, total=False):
     """Spend so far in each window."""
     workspaceSpend: float
     suspension: Any
+    hiddenByProject: bool
     spend: float
     tpm: int | None
     rpm: int | None
@@ -1147,23 +1148,22 @@ class ChatCompletionChunk(TypedDict, total=False):
     system_fingerprint: str
 
 
-class Replaced(NamedTuple):
-    """What ``replace_virtual_key`` did. ``method`` is ``rotated`` (an active key
-    got a new secret, same id) or ``reissued`` (a new key stands in for one that
-    cannot be rotated). ``secret`` is the new one-time secret; ``not_copied``
-    names what a reissued key did not inherit."""
+class Renewed(NamedTuple):
+    """What ``renew_virtual_key`` did. The key keeps its id; ``secret`` is its new
+    one-time secret. ``method`` is ``rotated`` (the key was active) or
+    ``extended_and_rotated`` (it had expired, so its expiry was moved to
+    ``expires_at`` first: 8.0.2 rotates only an active key)."""
 
     record: dict[str, Any]
     method: str
     secret: str | None
-    old_id: str
+    key_id: str
     old_status: str
-    old_revoked: bool = False
-    not_copied: tuple[str, ...] = ()
+    expires_at: str | None = None
 
     @property
     def id(self) -> str:
-        return str(self.record.get("uuid") or self.record.get("id"))
+        return self.key_id
 
 
 class Ensured(NamedTuple):
@@ -2483,12 +2483,16 @@ class FortiAIGate:
         ``provider_ids`` replaces the providers granted."""
         path = self._key_path(key_id, ws_id)
         data = self.get(path)
-        body = key_update_body(dict(data.get("key", data)) if isinstance(data, dict) else {})
+        record = dict(data.get("key", data)) if isinstance(data, dict) else {}
+        body = key_update_body(record)
         for field, value in (("expiresAt", expires_at), ("tpm", tpm), ("rpm", rpm)):
             if value is not None and value != "":
                 body[field] = value
         if policy_ids is not None:
-            body["policyIds"] = self._ids("policies", policy_ids, ws_id)
+            # Leaving an org-assigned policy out of the list reads as detaching it, which
+            # only an org admin may do (422), so they are always sent back.
+            wanted = self._ids("policies", policy_ids, ws_id)
+            body["policyIds"] = list(dict.fromkeys(org_policy_ids(record) + wanted))
         if provider_ids is not None:
             body["providerAccess"] = _provider_access(provider_ids)
         return cast(VirtualKey, self.put(path, body))
@@ -2505,84 +2509,45 @@ class FortiAIGate:
             VirtualKey, self.post(self._key_path(key_id, ws_id) + "/revoke", {"reason": reason})
         )
 
-    def replace_virtual_key(
+    def renew_virtual_key(
         self,
         key_id: Ref,
         *,
-        name: str | None = None,
-        expires_in_days: float | None = None,
-        revoke_old: bool = True,
-        allow_revoked: bool = False,
-        allow_uncopied: bool = False,
+        expires_in_days: float = 30,
         ws_id: WsRef | None = None,
-    ) -> Replaced:
-        """A working replacement for a key, and its new secret (once).
+    ) -> Renewed:
+        """Give a key a new secret, keeping its id, name, limits and policies.
 
-        8.0.2 rotates only an ACTIVE key: an expired, revoked or suspended one
-        answers "cannot be rotated: mint a new key instead". So an active key is
-        rotated in place, and any other is replaced by a new key in the same
-        workspace with its name, ``tpm``/``rpm``, policies, whole-provider access
-        and lifetime (``expires_in_days`` overrides the lifetime). A suspended
-        key is revoked once the new one exists (``revoke_old``).
-
-        Fails closed, creating nothing: a revoked key was shut off on purpose
-        (``allow_revoked``), and model groups or per-model provider limits cannot
-        be copied, so a replacement could reach more than the original
-        (``allow_uncopied``; what was left out is in ``Replaced.not_copied``)."""
+        8.0.2 rotates only an ACTIVE key ("a expired key cannot be rotated: mint
+        a new key instead"). An expired key becomes active again when its
+        ``expiresAt`` moves into the future, so an expired key is extended
+        ``expires_in_days`` from now and then rotated. A revoked key was shut off
+        on purpose and a suspended one has no API to lift it: both are refused
+        and nothing is changed. The old secret stops working at once."""
         old = self.virtual_key(key_id, ws_id)
-        old_id = str(old.get("id"))
+        kid = str(old.get("id"))
         status = str(old.get("status"))
         now = dt.datetime.now(dt.timezone.utc)
         expires = _parse_time(old.get("expiresAt"))
-        if status == "active" and not (expires and expires <= now):
-            rotated = self.rotate_virtual_key(old_id, ws_id)
-            return Replaced(dict(rotated), "rotated", secret_from_response(rotated), old_id, status)
-        if status == "revoked" and not allow_revoked:
-            raise ValueError(
-                f"key {old_id} was revoked, which is deliberate; "
-                "pass allow_revoked=True to replace it"
-            )
-        providers = old.get("providerAccess") or []
-        whole = [str(a["providerId"]) for a in providers if a.get("allModels")]
-        left_out = tuple(
-            [n for n, v in (("modelGroups", old.get("modelGroups")),) if v]
-            + (["providerAccess"] if len(whole) != len(providers) else [])
+        expired = status == "expired" or (
+            status == "active" and expires is not None and expires <= now
         )
-        if left_out and not allow_uncopied:
+        if not expired and status != "active":
             raise ValueError(
-                f"key {old_id} has {' and '.join(left_out)} that a replacement would not "
-                "inherit, so it could reach more than the original; nothing was created. "
-                "Pass allow_uncopied=True to create it anyway"
+                f"key {kid} is {status}; only an active or expired key can be renewed"
+                + (" (a revoked key was shut off on purpose)" if status == "revoked" else "")
             )
-        workspace = (old.get("workspace") or {}).get("id")
-        if not workspace:
-            raise ValueError(f"key {old_id} has no workspace to create its replacement in")
-        created_at = _parse_time(old.get("createdAt"))
-        expiry = None
-        if expires_in_days is not None:
-            expiry = now + dt.timedelta(days=float(expires_in_days))
-        elif expires and created_at:
-            expiry = now + (expires - created_at)  # the same lifetime again
-        own = [
-            str(p["id"]) if isinstance(p, dict) else str(p)
-            for p in old.get("policyIds") or []
-            if not (isinstance(p, dict) and p.get("assignedByOrg"))
-        ]
-        created = self.create_virtual_key(
-            workspace,
-            name or str(old.get("keyName") or "renewed-key"),
-            policy_ids=own or None,
-            provider_ids=whole or None,
-            expires_at=expiry.strftime("%Y-%m-%dT%H:%M:%S.000Z") if expiry else None,
-            tpm=old.get("tpm"),
-            rpm=old.get("rpm"),
+        new_expiry = None
+        if expired:
+            new_expiry = (now + dt.timedelta(days=float(expires_in_days))).strftime(
+                "%Y-%m-%dT%H:%M:%S.000Z"
+            )
+            self.update_virtual_key(kid, expires_at=new_expiry, ws_id=ws_id)
+        rotated = self.rotate_virtual_key(kid, ws_id)
+        method = "extended_and_rotated" if expired else "rotated"
+        return Renewed(
+            dict(rotated), method, secret_from_response(rotated), kid, status, new_expiry
         )
-        secret = secret_from_response(created)
-        revoked = False
-        if status == "suspended" and revoke_old:
-            self.revoke_virtual_key(old_id, f"Replaced by key {created.get('id')}")
-            revoked = True
-        return Replaced(dict(created), "reissued", secret, old_id, status, revoked, left_out)
 
     def delete_virtual_key(self, key_id: Ref, ws_id: WsRef | None = None) -> None:
         self.delete(self._key_path(key_id, ws_id))
@@ -2624,8 +2589,9 @@ class FortiAIGate:
             return Ensured(dict(record), "created", secret)
         current = self.virtual_key(active[0]["id"], ws)
         have = key_update_body(current)
+        own = [p for p in have.get("policyIds") or [] if p not in org_policy_ids(current)]
         want: dict[str, Any] = {}
-        if policies is not None and sorted(policies) != sorted(have.get("policyIds") or []):
+        if policies is not None and sorted(policies) != sorted(own):
             want["policy_ids"] = policies
         if provider_ids is not None and sorted(provider_ids) != sorted(
             str(a.get("providerId")) for a in have.get("providerAccess") or []
@@ -3488,6 +3454,15 @@ KEY_WRITABLE = (
     "modelGroups",
     "budgetWindows",
 )
+
+
+def org_policy_ids(record: Mapping[str, Any]) -> list[str]:
+    """The policies an organization forces onto a key (``assignedByOrg``)."""
+    return [
+        str(p["id"])
+        for p in record.get("policyIds") or []
+        if isinstance(p, dict) and p.get("assignedByOrg")
+    ]
 
 
 def key_update_body(record: Mapping[str, Any]) -> dict[str, Any]:

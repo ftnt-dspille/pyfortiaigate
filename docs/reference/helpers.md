@@ -24,7 +24,7 @@
 
 ::: pyfortiaigate.Ensured
 
-::: pyfortiaigate.Replaced
+::: pyfortiaigate.Renewed
 
 ## Body builders
 

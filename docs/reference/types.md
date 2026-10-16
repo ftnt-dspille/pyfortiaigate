@@ -469,6 +469,7 @@ A matched character range in scanned text.
 | `windowSpend` | [BudgetWindows](#budgetwindows) | Spend so far in each window. |
 | `workspaceSpend` | float |  |
 | `suspension` | Any |  |
+| `hiddenByProject` | bool |  |
 | `spend` | float |  |
 | `tpm` | int \| None |  |
 | `rpm` | int \| None |  |
@@ -509,6 +510,7 @@ Everything in [VirtualKey](#virtualkey), plus the fields below marked new.
 | `windowSpend` | [BudgetWindows](#budgetwindows) | Spend so far in each window. |
 | `workspaceSpend` | float |  |
 | `suspension` | Any |  |
+| `hiddenByProject` | bool |  |
 | `spend` | float |  |
 | `tpm` | int \| None |  |
 | `rpm` | int \| None |  |

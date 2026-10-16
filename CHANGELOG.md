@@ -42,6 +42,22 @@ All notable changes to this project are documented here. The format follows
 - The workshop's `lab.py` reads settings through `load_settings()`; the
   `env.example` file is gone (`pyfortiaigate config init` replaces it).
 
+- `replace_virtual_key` is now `renew_virtual_key(key_id, expires_in_days=30)`,
+  returning `Renewed` (was `Replaced`). It no longer creates a new key: an
+  expired key becomes active again when its expiry moves into the future
+  (live-verified on 8.0.2), so it is extended and then rotated in place, keeping
+  its id, name, limits, policies and model access. A revoked or suspended key is
+  refused. The `name`, `revoke_old`, `allow_revoked` and `allow_uncopied`
+  arguments are gone, as is `Replaced.not_copied`.
+
+### Fixed
+
+- `update_virtual_key(policy_ids=...)` and `ensure_virtual_key` on a key with
+  organization-assigned policies: the update now sends those policies back
+  (leaving one out reads as detaching it, which only an org admin may do: 422),
+  and `ensure_virtual_key` compares only the key's own policies.
+- `VirtualKey` declares `hiddenByProject`, which 8.0.2 keys now carry.
+
 ### Removed
 
 - `pyfortiaigate.cli.load_env` and `pyfortiaigate.cli.default_env_file`: use
