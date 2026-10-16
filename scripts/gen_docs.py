@@ -121,6 +121,8 @@ SECTIONS: list[tuple[str, list[str]]] = [
             "TrafficLogPage",
             "TrafficLogRow",
             "TrafficLog",
+            "BlockedRequest",
+            "BlockedDetector",
             "PromptText",
             "TrafficFilterOptions",
             "AuditLogPage",

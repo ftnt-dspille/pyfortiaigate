@@ -47,8 +47,10 @@ from __future__ import annotations
 import contextlib
 import datetime as dt
 import email.utils
+import functools
 import http.client
 import http.cookiejar
+import inspect
 import io
 import json
 import logging
@@ -69,6 +71,8 @@ JSON = Any
 # Invitable org roles (8.0.2 rejects plain "member").
 ROLE_MEMBER = "org_member"
 ROLE_ADMIN = "org_admin"
+# Roles whose calls without a workspace use the /api/v1/admin paths.
+ORG_ROLES = ("org_admin", "super_admin")
 
 # Review-queue ``type`` -> the approve/reject path segment.
 QUEUE_KIND = {"guardrail": "guardrails", "detector": "detectors", "policy": "policies"}
@@ -1034,6 +1038,46 @@ class TrafficLog(TrafficLogRow, total=False):
     org: Any
 
 
+class BlockedDetector(TypedDict, total=False):
+    name: str
+    type: str
+    """``REGEX``, ``NL``, ``DLP``, a built-in's type, ..."""
+    details: str
+    """Why it fired, e.g. ``Matched rules: launch-code (block)``."""
+    side: str
+    """``input`` (the prompt) or ``output`` (the model's answer)."""
+    id: str
+
+
+class BlockedRequest(TypedDict, total=False):
+    """One blocked request from ``blocked_requests()``: the traffic log joined
+    with the virtual key that sent it, flat enough to map onto a SOAR alert."""
+
+    uuid: str
+    """The traffic log's id: stable, use it to de-duplicate."""
+    time: str
+    """ISO 8601, UTC."""
+    timeStamp: int
+    """Epoch milliseconds."""
+    workspace: str
+    user: str
+    model: str
+    requestPath: str
+    action: str
+    prompt: str
+    response: str
+    detectors: list[BlockedDetector]
+    reason: str
+    """The first detector's ``details``."""
+    keyName: str
+    keyPrefix: str
+    keyId: str | None
+    """None when the key is gone or its name is ambiguous."""
+    keyStatus: str | None
+    ownerName: str | None
+    ownerEmail: str | None
+
+
 class _LogPage(TypedDict, total=False):
     total: int
     """On the first page only."""
@@ -1470,6 +1514,7 @@ class FortiAIGate:
         retries: int = 5,
         gateway_url: str | None = None,
         rate_limit_wait: float = 0,
+        workspace: str | None = None,
     ):
         self.url = origin(url)
         self.gateway_url = origin(gateway_url) if gateway_url else self.url
@@ -1487,11 +1532,16 @@ class FortiAIGate:
         # Set once the appliance answers 404/405: later builds dropped both testers.
         self._no_guardrail_tester = False
         self._no_server_playground = False
+        # Default workspace for a call made without ``ws_id`` (see ``default_workspace``).
+        self._workspace = workspace or None
+        self._default_ws: str | None = None
+        self._role: str | None = None
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None, **kw: Any) -> FortiAIGate:
         """FAIG_URL plus FAIG_TOKEN or FAIG_USERNAME/FAIG_PASSWORD. FAIG_CA_BUNDLE
-        trusts a CA file; FAIG_VERIFY_TLS=false turns verification off.
+        trusts a CA file; FAIG_VERIFY_TLS=false turns verification off;
+        FAIG_WORKSPACE sets the default workspace.
 
         Reads ``os.environ`` unless ``env`` is given, such as
         ``pyfortiaigate.settings.load_settings()`` (the environment plus your
@@ -1506,7 +1556,7 @@ class FortiAIGate:
             env.get("FAIG_PASSWORD"),
             token=env.get("FAIG_TOKEN") or None,
             verify=verify,
-            **kw,
+            **{"workspace": env.get("FAIG_WORKSPACE") or None, **kw},
         )
 
     def __enter__(self) -> FortiAIGate:
@@ -1664,6 +1714,49 @@ class FortiAIGate:
     def me(self) -> Me:
         """The logged-in user (``email``, ``role``, ``memberships``, ...)."""
         return cast(Me, self.get("/api/v1/user"))
+
+    @property
+    def role(self) -> str:
+        """The login's org role, read once: ``org_admin``, ``super_admin``,
+        ``org_member``, or the effective ``workspace_admin``/``workspace_member``."""
+        if self._role is None:
+            self._role = str(self.me().get("role") or "")
+        return self._role
+
+    @property
+    def org_scope(self) -> bool:
+        """True for an organization administrator, whose calls without ``ws_id``
+        use the ``/api/v1/admin`` paths; False for a workspace login."""
+        return self.role in ORG_ROLES
+
+    def default_workspace(self) -> str | None:
+        """The workspace a call without ``ws_id`` goes to: the ``workspace``
+        given to the client (name or id), else, for a workspace login, its only
+        membership. None for an org admin with no ``workspace`` (admin paths).
+        A workspace login in several workspaces must name one."""
+        # An unknown role (no ``role`` in the answer) keeps the admin paths.
+        workspace_login = bool(self.role) and not self.org_scope
+        if self._default_ws is None and (self._workspace or workspace_login):
+            mine = [(str(w.get("id")), str(w.get("workspaceName"))) for w in self.my_workspaces()]
+            if self._workspace:
+                found = [wid for wid, name in mine if self._workspace in (wid, name)]
+                if found:
+                    self._default_ws = found[0]
+                elif self.org_scope:  # an org admin may name any workspace
+                    self._default_ws = self.resolve_workspace(self._workspace)
+                else:
+                    raise ValueError(
+                        f"this login is not a member of workspace {self._workspace!r};"
+                        f" its workspaces: {', '.join(n for _, n in mine) or 'none'}"
+                    )
+            elif len(mine) == 1:
+                self._default_ws = mine[0][0]
+            else:
+                raise ValueError(
+                    f"this login is a member of {len(mine)} workspaces"
+                    f" ({', '.join(n for _, n in mine) or 'none'}): pass workspace= or ws_id"
+                )
+        return self._default_ws
 
     # -- users & invitations (org admin) -----------------------------------------
     def users(self) -> list[User]:
@@ -2247,8 +2340,13 @@ class FortiAIGate:
         return cast("list[Policy]", self._list("/api/v1/admin/policies"))
 
     def policy(self, pid: Ref, ws_id: WsRef | None = None) -> Policy:
-        """One policy (org-admin path). ``ws_id`` scopes a name lookup."""
-        data = self.get(f"/api/v1/admin/policies/{_q(self.resolve_policy(pid, ws_id))}")
+        """One policy, by the workspace path (``ws_id``, which also scopes a name
+        lookup) or the org-admin path."""
+        pid = _q(self.resolve_policy(pid, ws_id))
+        if ws_id:
+            data = self.get(f"/api/v1/workspaces/{self._ws(ws_id)}/policies/{pid}")
+        else:
+            data = self.get(f"/api/v1/admin/policies/{pid}")
         return cast(Policy, dict(data.get("policy", data)) if isinstance(data, dict) else {})
 
     def policy_by_name(self, ws_id: WsRef | None, name: str) -> Policy | None:
@@ -3010,6 +3108,85 @@ class FortiAIGate:
         data = self.get(f"{self._logs_base('traffic-logs', ws_id)}/{_q(uuid)}")
         return cast(TrafficLog, dict(data) if isinstance(data, dict) else {})
 
+    def blocked_requests(
+        self,
+        *,
+        since: When | None = None,
+        until: When | None = None,
+        range: str = "24h",
+        max_items: int | None = None,
+        ws_id: WsRef | None = None,
+    ) -> list[BlockedRequest]:
+        """Requests the gateway blocked, newest first, each with what was sent,
+        which detectors fired and why, and the virtual key that sent it (id,
+        status, owner name and email). A traffic log names its key only by
+        ``keyAlias`` and prefix, so the key is looked up in the same scope.
+
+        ``since``/``until`` (``datetime`` or epoch ms; ``until`` defaults to
+        now) give a custom window, for a poller's last-pull time; otherwise
+        ``range``. One ``traffic_log`` call per row: bound it with ``max_items``."""
+        if since is not None and until is None:
+            until = int(time.time() * 1000)
+        rows = list(
+            self.traffic_logs(
+                range=range,
+                start=since,
+                end=until,
+                filters={"verdict": "Block"},
+                max_items=max_items,
+                ws_id=ws_id,
+            )
+        )
+        if not rows:
+            return []
+        by_name: dict[str, list[VirtualKey]] = {}
+        for k in self.virtual_keys(ws_id):
+            by_name.setdefault(str(k.get("keyName")), []).append(k)
+        return [self._blocked(self.traffic_log(r["uuid"], ws_id), by_name) for r in rows]
+
+    @staticmethod
+    def _blocked(log: TrafficLog, by_name: Mapping[str, list[VirtualKey]]) -> BlockedRequest:
+        alias, prefix = str(log.get("keyAlias") or ""), str(log.get("keyPrefix") or "")
+        keys = by_name.get(alias, [])
+        if len(keys) > 1:  # same name twice: the previews share the secret's tail
+            keys = [k for k in keys if str(k.get("keyPreview") or "") == prefix] or keys
+        key = keys[0] if len(keys) == 1 else None
+        owner = (key or {}).get("owner") or {}
+        found: list[BlockedDetector] = []
+        for side, hits in (log.get("violation") or {}).items():
+            for h in hits or []:
+                found.append(
+                    {
+                        "name": str(h.get("detectorName") or h.get("detectorId") or ""),
+                        "type": str(h.get("type") or ""),
+                        "details": str(h.get("details") or ""),
+                        "side": str(side),
+                        "id": str(h.get("detectorId") or ""),
+                    }
+                )
+        ts = int(log.get("timeStamp") or 0)
+        when = dt.datetime.fromtimestamp(ts / 1000, dt.timezone.utc)
+        return {
+            "uuid": str(log.get("uuid") or ""),
+            "time": when.isoformat().replace("+00:00", "Z"),
+            "timeStamp": ts,
+            "workspace": str(log.get("workspace") or ""),
+            "user": str(log.get("user") or ""),
+            "model": str(log.get("model") or ""),
+            "requestPath": str(log.get("requestPath") or ""),
+            "action": str(log.get("action") or ""),
+            "prompt": str((log.get("prompt") or {}).get("original") or ""),
+            "response": str((log.get("response") or {}).get("original") or ""),
+            "detectors": found,
+            "reason": found[0]["details"] if found else "",
+            "keyName": alias,
+            "keyPrefix": prefix,
+            "keyId": str(key["id"]) if key else None,
+            "keyStatus": str(key.get("status")) if key else None,
+            "ownerName": owner.get("fullName"),
+            "ownerEmail": owner.get("email"),
+        }
+
     def traffic_log_filter_options(
         self,
         *,
@@ -3231,6 +3408,28 @@ class FortiAIGate:
                     yield json.loads(data)
         finally:
             conn.close()
+
+
+def _default_ws_id(fn: Any) -> Any:
+    """Wrap a method taking ``ws_id`` so that leaving it out uses the client's
+    ``default_workspace()`` (a workspace login's own workspace)."""
+    sig = inspect.signature(fn)
+
+    @functools.wraps(fn)
+    def wrapper(self: FortiAIGate, *args: Any, **kwargs: Any) -> Any:
+        bound = sig.bind(self, *args, **kwargs)
+        if bound.arguments.get("ws_id") is None:
+            ws = self.default_workspace()
+            if ws:
+                bound.arguments["ws_id"] = ws
+        return fn(*bound.args, **bound.kwargs)
+
+    return wrapper
+
+
+for _name, _fn in list(vars(FortiAIGate).items()):
+    if inspect.isfunction(_fn) and "ws_id" in inspect.signature(_fn).parameters:
+        setattr(FortiAIGate, _name, _default_ws_id(_fn))
 
 
 Day = dt.date | str

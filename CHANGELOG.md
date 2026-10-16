@@ -8,6 +8,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- A default workspace: `FortiAIGate(..., workspace=)` (or `FAIG_WORKSPACE`)
+  sends every call made without `ws_id` to that workspace, and a workspace
+  login (role not `org_admin`/`super_admin`) defaults to its only workspace, so
+  it works without passing `ws_id` everywhere. `role`, `org_scope` and
+  `default_workspace()` report it; an org admin with no `workspace` keeps the
+  admin paths. The role is read once (`GET /api/v1/user`).
+- `blocked_requests(since=, until=, range=, max_items=, ws_id=)`: blocked
+  requests with the prompt, the detectors that fired and why, and the virtual
+  key that sent it (id, status, owner name and email, looked up from the log's
+  `keyAlias`; two keys with one name are told apart by their preview). Returns
+  `BlockedRequest` records, flat enough to map onto a SOAR alert; `since` alone
+  is a poller's last-pull time.
 - `pyfortiaigate config`: `config init` asks for the address, login, workspace
   and virtual key (password and key typed hidden, Enter keeps a saved value),
   logs in and checks the key, then writes `~/.config/pyfortiaigate/.env` with

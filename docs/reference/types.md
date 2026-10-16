@@ -1156,6 +1156,46 @@ Everything in [TrafficLogRow](#trafficlogrow), plus the fields below marked new.
 | `requestPath` | str |  |
 | `trafficType` | str | `Governed` or `Passthrough`. |
 
+[](){#pyfortiaigate.client.BlockedRequest}
+[](){#pyfortiaigate.BlockedRequest}
+### BlockedRequest
+
+One blocked request from `blocked_requests()`: the traffic log joined
+with the virtual key that sent it, flat enough to map onto a SOAR alert.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `uuid` | str | The traffic log's id: stable, use it to de-duplicate. |
+| `time` | str | ISO 8601, UTC. |
+| `timeStamp` | int | Epoch milliseconds. |
+| `workspace` | str |  |
+| `user` | str |  |
+| `model` | str |  |
+| `requestPath` | str |  |
+| `action` | str |  |
+| `prompt` | str |  |
+| `response` | str |  |
+| `detectors` | list\[[BlockedDetector](#blockeddetector)\] |  |
+| `reason` | str | The first detector's `details`. |
+| `keyName` | str |  |
+| `keyPrefix` | str |  |
+| `keyId` | str \| None | None when the key is gone or its name is ambiguous. |
+| `keyStatus` | str \| None |  |
+| `ownerName` | str \| None |  |
+| `ownerEmail` | str \| None |  |
+
+[](){#pyfortiaigate.client.BlockedDetector}
+[](){#pyfortiaigate.BlockedDetector}
+### BlockedDetector
+
+| Field | Type | Meaning |
+|---|---|---|
+| `name` | str |  |
+| `type` | str | `REGEX`, `NL`, `DLP`, a built-in's type, ... |
+| `details` | str | Why it fired, e.g. `Matched rules: launch-code (block)`. |
+| `side` | str | `input` (the prompt) or `output` (the model's answer). |
+| `id` | str |  |
+
 [](){#pyfortiaigate.client.PromptText}
 [](){#pyfortiaigate.PromptText}
 ### PromptText

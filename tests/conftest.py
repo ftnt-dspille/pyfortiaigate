@@ -145,6 +145,7 @@ def faig(fake: FakeFaig) -> Iterator[FortiAIGate]:
     c = FortiAIGate(fake.url, "admin", "pw")
     # Short test ids ("w1") are not UUIDs; seed them so no name lookup happens.
     c._ws_ids.update({f"w{i}": f"w{i}" for i in range(10)})
+    c._role = "org_admin"  # known role: calls without ws_id use the admin paths, no /api/v1/user
     yield c
     c._opener.close()
 

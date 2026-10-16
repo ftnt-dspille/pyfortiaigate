@@ -107,7 +107,7 @@ def test_names_in_object_calls(
 
 def test_policy_by_name_in_a_workspace(faig: FortiAIGate, fake: FakeFaig) -> None:
     fake.answer("GET", f"{WS}/policies", (200, [{"id": "p1", "name": "pol"}]))
-    fake.answer("GET", "/api/v1/admin/policies/p1", (200, {"policy": {"id": "p1"}}))
+    fake.answer("GET", f"{WS}/policies/p1", (200, {"policy": {"id": "p1"}}))
     assert faig.policy("pol", "w1") == {"id": "p1"}
 
 
