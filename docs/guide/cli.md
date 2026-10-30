@@ -193,7 +193,46 @@ run, and the table says PASS or MISMATCH per case. A case the gateway refuses
 is an ERROR, never a PASS. `examples/workshop/scenarios.json` is the workshop's
 catalog.
 
+A case may also carry `messages`, a whole exchange to send in place of the one
+prompt, such as a tool call and the tool's result. `pyfortiaigate scenarios agent`
+runs the agent's catalog this way (see below).
+
 ![pyfortiaigate try-regex](../assets/cli/try-regex.svg)
+
+## Chat with a tool-using agent
+
+```bash
+pyfortiaigate agent
+pyfortiaigate agent --mcp "python my_mcp_server.py"
+pyfortiaigate scenarios agent
+```
+
+`agent` opens a full-screen chat with an agent. The agent offers the model the
+tools of an MCP server and runs the ones it asks for. Every model call goes
+through the gateway under your key, the tool results the agent sends back
+included, so your guardrails judge what a tool returned as well as what you
+typed. The chat is on the left. On the right are the tool calls, each result
+sent back to the model, and the gateway's verdict.
+
+With no `--mcp`, the agent starts the bundled helpdesk server
+(`pyfortiaigate mcp-demo`, an MCP server over stdio). It offers `get_ticket` and
+a `send_email` that sends nothing. Ticket 4411 hides an indirect prompt
+injection, which an attacker typed into the ticket. Buttons above the input box
+run the agent scenarios: a clean ticket, the poisoned ticket, a direct injection
+and an exfiltration request. Each reports PASS or MISMATCH against what it
+expects. `--mcp` runs any MCP server that speaks stdio. `--no-tools` is a plain
+chat.
+
+To keep a small model dependable, each turn offers the tools once, on a call that
+sees only your question, and asks for the answer without them. A finished turn
+keeps only your question and the answer. A blocked turn is dropped. `agent`
+needs a terminal; it refuses to run in a pipe.
+
+![pyfortiaigate agent](../assets/cli/agent.svg)
+
+`scenarios agent` sends the same cases as a batch. A tool case sends its
+recorded exchange, so it needs no tool call from the model and gives the same
+result on every run.
 
 ## Other commands
 

@@ -221,3 +221,16 @@ def test_bare_command_prints_the_grouped_help(capsys: pytest.CaptureFixture[str]
     assert "Get started:" in out
     assert "Send prompts through the gateway:" in out
     assert out.index("Get started:") < out.index("Traffic, blocks and spend:")
+
+
+def test_agent_catalog_sends_the_tool_exchange(
+    cli_env: FakeFaig, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cli_env.answer("POST", CHAT, ANSWER, BLOCK, BLOCK, BLOCK)
+    code, out, _ = run(capsys, "--json", "scenarios", "agent", "--key", "faig_x", "--model", "m")
+    assert code == 0
+    assert [r["verdict"] for r in json.loads(out)["cases"]] == ["PASS"] * 4
+    poisoned = cli_env.calls("POST", CHAT)[1].body["messages"]
+    assert [m["role"] for m in poisoned] == ["system", "user", "assistant", "tool"]
+    assert "IGNORE ALL PREVIOUS INSTRUCTIONS" in poisoned[-1]["content"]
+    assert "tools" not in cli_env.calls("POST", CHAT)[1].body  # no model tool call

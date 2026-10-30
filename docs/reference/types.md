@@ -752,6 +752,7 @@ A provider whose models and keys can be granted.
 | `window` | [DateWindow](#datewindow) |  |
 | `previousWindow` | [DateWindow](#datewindow) | The same-length window before, for comparison. |
 | `totals` | [Volume](#volume) |  |
+| `previousTotals` | [Volume](#volume) \| None | `totals` for `previousWindow`; None when nothing was used then. |
 | `adoption` | [UsageAdoption](#usageadoption) |  |
 
 [](){#pyfortiaigate.client.UsageAdoption}
@@ -795,6 +796,7 @@ A provider whose models and keys can be granted.
 | `previousWindow` | [DateWindow](#datewindow) |  |
 | `measures` | list\[str\] | The spend measures present, e.g. `["chargebackSpend"]`. |
 | `totals` | [CostTotals](#costtotals) |  |
+| `previousTotals` | [CostTotals](#costtotals) \| None | `totals` for `previousWindow`; None when nothing was spent then. |
 | `volume` | [Volume](#volume) |  |
 
 [](){#pyfortiaigate.client.CostTotals}
@@ -860,6 +862,8 @@ and `volume`.
 | `keyType` | str |  |
 | `requests` | int |  |
 | `tokens` | int |  |
+| `previousRequests` | int \| None | `requests` in the window before (usage rankings); None if none. |
+| `previousTokens` | int \| None |  |
 | `chargebackSpend` | [Spend](#spend) |  |
 | `providerSpend` | [Spend](#spend) |  |
 | `share` | float | Fraction (0-1) of the window's spend. |

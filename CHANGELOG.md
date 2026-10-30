@@ -6,6 +6,30 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `pyfortiaigate agent`: a full-screen (Textual) chat with a tool-using agent.
+  Every model call goes through the gateway, the tool results sent back
+  included, so guardrails catch an injection hidden in what a tool returned.
+  Buttons run the agent scenarios and report PASS or MISMATCH. `--mcp CMD`
+  runs any MCP server that speaks stdio. `Agent` and `McpClient`
+  (`pyfortiaigate.agent`) are the same thing as a library, standard library
+  only.
+- `pyfortiaigate mcp-demo`: a bundled helpdesk MCP server (`get_ticket`, a fake
+  `send_email`) with one poisoned ticket.
+- `pyfortiaigate scenarios agent`: the agent's scenario catalog. A catalog case
+  may carry `messages`, a whole exchange such as a tool call and its result, in
+  place of `prompt`.
+
+### Changed
+
+- The `cli` extra now installs Textual too.
+
+### Fixed
+
+- `UsageSummary`/`CostSummary` declare `previousTotals`, and `RankRow`
+  `previousRequests`/`previousTokens`, which FortiAIGate 8.0.2 now returns.
+
 ## [0.4.0] - 2026-10-16
 
 ### Added

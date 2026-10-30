@@ -29,8 +29,9 @@ dependencies = []
 [project.optional-dependencies]
 # The command line draws tables, panels and bar charts with rich when it is here;
 # without it the output is plain aligned text. The library itself needs nothing.
-cli = ["rich>=13.7"]
-test = ["pytest>=7.0", "pytest-cov>=4.0", "rich>=13.7"]
+# Textual draws `faig agent`'s full-screen view.
+cli = ["rich>=13.7", "textual>=0.80"]
+test = ["pytest>=7.0", "pytest-cov>=4.0", "rich>=13.7", "textual>=0.80"]
 typecheck = ["mypy>=1.13"]
 # Pinned so a local run and CI agree; bump deliberately.
 lint = ["ruff==0.16.10"]

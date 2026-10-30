@@ -758,6 +758,8 @@ class UsageSummary(TypedDict, total=False):
     previousWindow: DateWindow
     """The same-length window before, for comparison."""
     totals: Volume
+    previousTotals: Volume | None
+    """``totals`` for ``previousWindow``; None when nothing was used then."""
     adoption: UsageAdoption
 
 
@@ -785,6 +787,8 @@ class CostSummary(TypedDict, total=False):
     measures: list[str]
     """The spend measures present, e.g. ``["chargebackSpend"]``."""
     totals: CostTotals
+    previousTotals: CostTotals | None
+    """``totals`` for ``previousWindow``; None when nothing was spent then."""
     volume: Volume
 
 
@@ -815,6 +819,9 @@ class RankRow(TypedDict, total=False):
     keyType: str
     requests: int
     tokens: int
+    previousRequests: int | None
+    """``requests`` in the window before (usage rankings); None if none."""
+    previousTokens: int | None
     chargebackSpend: Spend
     providerSpend: Spend
     share: float

@@ -60,10 +60,13 @@ PROG = (
 CATALOG = Path(__file__).with_name("data") / "scenarios.json"
 """The workshop's scenario catalog, shipped with the package: the default for ``scenarios``."""
 
+AGENT_CATALOG = Path(__file__).with_name("data") / "agent_scenarios.json"
+"""The agent's scenarios: ``scenarios agent`` runs them, and they are ``agent``'s quick prompts."""
+
 # How `faig --help` lists the commands: by task, in the order a newcomer needs them.
 GROUPS = (
     ("Get started", ("config", "whoami", "check-key", "models")),
-    ("Send prompts through the gateway", ("chat", "scenarios")),
+    ("Send prompts through the gateway", ("chat", "scenarios", "agent", "mcp-demo")),
     ("Test detectors without a model", ("scan", "try-regex")),
     (
         "Your setup",
@@ -700,11 +703,13 @@ def _send(
     text: str,
     max_tokens: int | None,
     temperature: float | None,
+    messages: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """One prompt through the gateway, as a result row: ``result`` is answered,
     blocked or refused; ``status`` the HTTP status; ``text`` the answer, the block
-    message or why the gateway refused."""
-    msgs = [{"role": "user", "content": text}]
+    message or why the gateway refused. ``messages`` sends a whole exchange (a
+    tool call and its result) in place of the one user message."""
+    msgs = messages or [{"role": "user", "content": text}]
     try:
         out = c.chat_completion(key, model, msgs, max_tokens=max_tokens, temperature=temperature)
     except FaigError as e:
@@ -781,6 +786,37 @@ def cmd_chat(c: FortiAIGate, args: argparse.Namespace) -> Page:
     return Page(data, blocks, exit=status)
 
 
+def cmd_agent(c: FortiAIGate, args: argparse.Namespace) -> None:
+    """An interactive agent: chat with the model, which may call the tools of an
+    MCP server. Prompts and tool results both reach the model through the gateway."""
+    from . import agent_ui
+    from .agent import DEMO_SERVER, Agent, McpClient
+
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        raise ValueError("agent is full screen: run it in a terminal, not a pipe")
+    model = _model_for(c, args)
+    cmd = args.mcp.split() if args.mcp else DEMO_SERVER
+    with McpClient(cmd) if not args.no_tools else _nullcontext() as mcp:
+        agent = Agent(c, args.key, model, mcp, max_tokens=args.max_tokens)
+        tools = ", ".join(t["name"] for t in mcp.tools) if mcp else "none"
+        header = f"{model} via {c.gateway_url} · tools: {tools}"
+        footer = f"{{tokens}} tokens this session; `{PROG} logs` lists every call."
+        agent_ui.run_tui(agent, header, footer, _load_catalog("agent") if mcp else None)
+
+
+def _nullcontext() -> Any:
+    import contextlib
+
+    return contextlib.nullcontext()
+
+
+def cmd_mcp_demo(c: FortiAIGate | None, args: argparse.Namespace) -> None:
+    """Run the bundled helpdesk MCP server on stdin/stdout (an MCP client starts it)."""
+    from .mcp_demo import serve
+
+    serve()
+
+
 def _why(c: FortiAIGate, args: argparse.Namespace, since: int) -> list[Any]:
     """What blocked the prompt, from its traffic log record (it lands a few
     seconds after the request; reading it needs a login and a workspace)."""
@@ -807,7 +843,7 @@ def _why(c: FortiAIGate, args: argparse.Namespace, since: int) -> list[Any]:
 
 
 def _load_catalog(path: str) -> list[dict[str, Any]]:
-    p = Path(path).expanduser()
+    p = AGENT_CATALOG if path == "agent" else Path(path).expanduser()
     if not p.is_file():
         raise FileNotFoundError(f"no scenario catalog {path}")
     data = json.loads(p.read_text())
@@ -842,7 +878,7 @@ def cmd_scenarios(c: FortiAIGate, args: argparse.Namespace) -> Page:
     for x in cases:
         # temperature 0: the same case gets the same answer on every run, so an
         # output rule always has the same text to match.
-        r = _send(c, args.key, model, str(x["prompt"]), None, 0.0)
+        r = _send(c, args.key, model, str(x["prompt"]), None, 0.0, x.get("messages"))
         got = {"answered": "allowed", "blocked": "blocked"}.get(r["result"], "error")
         verdict = "ERROR" if got == "error" else "PASS" if got == x["expect"] else "MISMATCH"
         rows.append(
@@ -1348,13 +1384,22 @@ def parser(settings: Mapping[str, str] | None = None) -> argparse.ArgumentParser
     )
     sp.add_argument("--why", action="store_true", help="on a block, name what matched (logs in)")
     sp.add_argument("text", help="the prompt (quote it)")
+    sp = add("agent", cmd_agent, "chat with a tool-using agent, every model call via the gateway")
+    gateway(sp)
+    sp.add_argument(
+        "--mcp", metavar="CMD", help="MCP server command (default: the bundled helpdesk demo)"
+    )
+    sp.add_argument("--no-tools", action="store_true", help="plain chat, no MCP server")
+    sp.add_argument("--max-tokens", type=int, default=256, metavar="N", help="(default 256)")
+    add("mcp-demo", cmd_mcp_demo, "run the demo helpdesk MCP server on stdio", ws=False)
     sp = add("scenarios", cmd_scenarios, "run a catalog of prompts: PASS or MISMATCH per case")
     gateway(sp)
     sp.add_argument(
         "catalog",
         nargs="?",
         default=str(CATALOG),
-        help="JSON file of cases: [{name, prompt, expect: blocked|allowed, ...}]"
+        help="JSON file of cases: [{name, prompt, expect: blocked|allowed, ...}];"
+        " `agent` for the agent's tool-use cases"
         " (default: the workshop catalog that comes with pyfortiaigate)",
     )
     sp.add_argument("--use-case", help="only cases whose use case matches (part of the name)")
@@ -1427,7 +1472,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         {"FAIG_URL": args.url, "FAIG_VERIFY_TLS": "false" if args.insecure else None}
     )
     try:
-        if args.command == "config":
+        page: Page | None
+        if args.command == "mcp-demo":
+            page = args.fn(None, args)
+        elif args.command == "config":
             page = CONFIG_COMMANDS[args.config or "list"](settings, args)  # bare `config` lists
         else:
             if not settings.get("FAIG_URL"):
