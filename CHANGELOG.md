@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-10-30
+
+### Fixed
+
+- The tool-approval dialog escapes every non-ASCII character in a call's
+  arguments (`\uXXXX`), so invisible or right-to-left control characters
+  can't make a call look like something else.
+
 ## [0.5.2] - 2026-10-30
 
 ### Fixed

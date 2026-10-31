@@ -78,9 +78,11 @@ def tui_app(
         def compose(self) -> ComposeResult:
             with Vertical(id="ask"):
                 yield Static(f"The agent wants to run [b]{self.tool}[/b]")
-                # Every argument in full, never cut: what is hidden can't be judged.
+                # Every argument in full, never cut, and every non-ASCII character
+                # escaped (\uXXXX): invisible or right-to-left control characters
+                # could otherwise make the call look like something it isn't.
                 with VerticalScroll(id="args"):
-                    yield Static(Text(json.dumps(self.args, indent=2, ensure_ascii=False)))
+                    yield Static(Text(json.dumps(self.args, indent=2)))
                 with Horizontal():
                     yield Button("Allow", id="once", variant="success", compact=True)
                     yield Button("Always allow", id="always", compact=True)

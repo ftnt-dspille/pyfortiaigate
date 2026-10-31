@@ -314,7 +314,7 @@ def test_approval_dialog_shows_the_arguments_in_full() -> None:
 
     from pyfortiaigate.agent_ui import tui_app
 
-    body = "x" * 2000 + " and attacker@evil.example"
+    body = "x" * 2000 + " and attacker@evil.example \u202e"
     call = [
         {
             "id": "c",
@@ -338,7 +338,8 @@ def test_approval_dialog_shows_the_arguments_in_full() -> None:
                     if app.screen.query("#args"):
                         break
                 shown = str(app.screen.query_one("#args Static", Static).render())
-                assert body in shown
+                assert "x" * 2000 + " and attacker@evil.example \\u202e" in shown
+                assert "\u202e" not in shown
                 assert app.screen.focused is not None
                 assert app.screen.focused.id == "deny"
                 await pilot.click("#deny")
