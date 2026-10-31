@@ -226,6 +226,12 @@ tool, for the rest of the session) or **Deny**, which has the focus. A denied
 call is not run, and the model is told you denied it. `--yes` runs them without
 asking. `--no-tools` is a plain chat.
 
+When your key may call more than one model, a **Model** picker sits above the
+input box, and `/model NAME` does the same from the keyboard (`/model` alone
+lists the choices). The switch applies from the next message; the conversation
+carries on, so you can ask two models the same thing. The header shows the
+model in use. `--model` picks the one it starts with.
+
 Below 100 columns the tool calls stack under the chat, and the layout follows
 the window as you resize it.
 

@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-10-31
+
+### Added
+
+- `agent`: when the key may call more than one model, a Model picker above the
+  input box, and `/model NAME`, switch models mid-conversation. The header
+  shows the model in use.
+
 ## [0.5.3] - 2026-10-30
 
 ### Fixed

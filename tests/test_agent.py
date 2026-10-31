@@ -254,6 +254,54 @@ def test_full_screen_view_stacks_in_a_narrow_terminal() -> None:
     asyncio.run(drive())
 
 
+def test_model_picker_switches_the_agent_model() -> None:
+    import asyncio
+
+    from textual.widgets import Input, RichLog, Select
+
+    from pyfortiaigate.agent_ui import tui_app
+
+    agent = Agent(FakeGateway([]), "faig_x", "llama", None)  # type: ignore[arg-type]
+    app = tui_app(agent, "via test", models=["llama", "openai-gpt-4.1-mini"])
+
+    async def drive() -> None:
+        async with app.run_test(size=(160, 45)) as pilot:
+            assert app.sub_title == "llama · via test"
+            app.query_one("#model", Select).value = "openai-gpt-4.1-mini"
+            await pilot.pause()
+            assert agent.model == "openai-gpt-4.1-mini"
+            assert app.sub_title == "openai-gpt-4.1-mini · via test"
+            box = app.query_one(Input)
+            box.value = "/model gpt-5.5-pro"
+            await box.action_submit()
+            await pilot.pause()
+            assert agent.model == "openai-gpt-4.1-mini"
+            assert "not a model this key may call" in "\n".join(
+                str(line.text) for line in app.query_one(RichLog).lines
+            )
+            box.value = "/model llama"
+            await box.action_submit()
+            await pilot.pause()
+            assert agent.model == "llama"
+            assert app.query_one("#model", Select).value == "llama"
+
+    asyncio.run(drive())
+
+
+def test_no_model_picker_for_one_model() -> None:
+    import asyncio
+
+    from pyfortiaigate.agent_ui import tui_app
+
+    app = tui_app(Agent(FakeGateway([]), "faig_x", "m", None), "via test", models=["m"])  # type: ignore[arg-type]
+
+    async def drive() -> None:
+        async with app.run_test(size=(160, 45)):
+            assert not app.query("#model")
+
+    asyncio.run(drive())
+
+
 def test_denied_tool_call_is_not_run() -> None:
     gw = FakeGateway([reply(calls=TICKET_CALL), reply("I can't look it up.")])
     asked: list[tuple[str, dict]] = []

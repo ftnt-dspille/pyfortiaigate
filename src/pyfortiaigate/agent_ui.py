@@ -30,8 +30,9 @@ def run_tui(
     footer: str,
     scenarios: list[dict[str, Any]] | None = None,
     approve: bool = False,
+    models: list[str] | None = None,
 ) -> None:
-    tui_app(agent, header, scenarios, approve).run()
+    tui_app(agent, header, scenarios, approve, models).run()
     print(footer.format(tokens=agent.tokens))
 
 
@@ -40,17 +41,24 @@ def tui_app(
     header: str,
     scenarios: list[dict[str, Any]] | None = None,
     approve: bool = False,
+    models: list[str] | None = None,
 ) -> Any:
     """The full-screen app, unstarted (tests drive it with ``run_test``). Each
     scenario with a ``button`` becomes a quick prompt that asks its ``ask`` and
     checks the turn's outcome against its ``expect`` (blocked or allowed). With
-    ``approve`` every tool call waits for Allow, Always allow or Deny."""
+    ``approve`` every tool call waits for Allow, Always allow or Deny. With more
+    than one of ``models`` (what the key may call) a Model picker, and
+    ``/model NAME``, switch the agent's model between turns; the header names
+    the current one, followed by ``header``."""
+    choices: list[str] = list(models or [])
+    if agent.model not in choices:
+        choices.insert(0, agent.model)
     quick = [x for x in scenarios or [] if x.get("button") and x.get("ask")]
     try:
         from textual.app import App, ComposeResult
         from textual.containers import Horizontal, Vertical, VerticalScroll
         from textual.screen import ModalScreen
-        from textual.widgets import Button, Footer, Header, Input, Markdown, RichLog, Static
+        from textual.widgets import Button, Footer, Header, Input, Markdown, RichLog, Select, Static
     except ImportError as e:
         raise ValueError(
             'the full-screen agent needs Textual: pip install "pyfortiaigate[cli]"'
@@ -97,13 +105,14 @@ def tui_app(
 
     class AgentApp(App[None]):
         TITLE = "faig agent"
-        SUB_TITLE = header
+        SUB_TITLE = f"{agent.model} · {header}"
         CSS = """
         #chat { width: 3fr; padding: 0 1; }
         #side { width: 2fr; border-left: solid $primary; }
         #trace { height: 1fr; }
         #status { height: 1; padding: 0 1; color: $text-muted; }
         #quick { height: auto; padding: 0 1; }
+        #model { width: 40; margin: 0 1; }
         #quick Button { margin-right: 1; min-width: 16; }
         .narrow #main { layout: vertical; }
         .narrow #chat { width: 1fr; height: 3fr; }
@@ -128,6 +137,15 @@ def tui_app(
                 with Horizontal(id="quick"):
                     for i, x in enumerate(quick):
                         yield Button(str(x["button"]), id=f"scenario-{i}", compact=True)
+            if len(choices) > 1:
+                yield Select(
+                    [(m, m) for m in choices],
+                    value=agent.model,
+                    allow_blank=False,
+                    prompt="Model",
+                    id="model",
+                    compact=True,
+                )
             yield Input(placeholder="Ask the agent… (Enter to send, Ctrl+Q to quit)")
             yield Footer()
 
@@ -177,8 +195,31 @@ def tui_app(
             event.input.value = ""
             if text in ("/exit", "/quit"):
                 self.exit()
+            elif text.startswith("/model"):
+                self._use_model(text.removeprefix("/model").strip())
             elif text:
                 self._submit(text)
+
+        def on_select_changed(self, event: Select.Changed) -> None:
+            if event.select.id == "model" and isinstance(event.value, str):
+                self._use_model(event.value)
+
+        def _use_model(self, name: str) -> None:
+            trace = self.query_one(RichLog)
+            if not name:
+                trace.write(Text(f"model: {agent.model} (choices: {', '.join(choices)})"))
+                return
+            if name not in choices:
+                trace.write(Text(f"✖ {name} is not a model this key may call", style="red"))
+                return
+            if name == agent.model:
+                return
+            agent.model = name
+            self.sub_title = f"{name} · {header}"
+            trace.write(Text(f"⇄ now using {name}", style="bold cyan"))
+            for sel in self.query("#model").results(Select):
+                if sel.value != name:
+                    sel.value = name
 
         def on_button_pressed(self, event: Button.Pressed) -> None:
             x = quick[int(str(event.button.id).rsplit("-", 1)[1])]

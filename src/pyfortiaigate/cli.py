@@ -799,13 +799,17 @@ def cmd_agent(c: FortiAIGate, args: argparse.Namespace) -> None:
     with McpClient(cmd) if not args.no_tools else _nullcontext() as mcp:
         agent = Agent(c, args.key, model, mcp, max_tokens=args.max_tokens)
         tools = ", ".join(t["name"] for t in mcp.tools) if mcp else "none"
-        header = f"{model} via {c.gateway_url} · tools: {tools}"
+        header = f"via {c.gateway_url} · tools: {tools}"
         footer = f"{{tokens}} tokens this session; `{PROG} logs` lists every call."
         # Your own MCP server's tools can do real things: ask before each call. The
         # bundled demo's tools only read canned tickets and print, so they run unasked.
         approve = bool(args.mcp) and not args.yes
         scenarios = _load_catalog("agent") if mcp and not args.mcp else None
-        agent_ui.run_tui(agent, header, footer, scenarios, approve)
+        try:
+            models = c.available_models(args.key)
+        except FaigError:
+            models = []
+        agent_ui.run_tui(agent, header, footer, scenarios, approve, models)
 
 
 def _nullcontext() -> Any:
