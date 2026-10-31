@@ -227,3 +227,81 @@ def test_demo_server_speaks_json_rpc_in_process(capsys: Any) -> None:
     assert resp[5]["result"] == {}
     assert resp[6]["error"]["code"] == -32601
     assert resp[7]["error"]["code"] == -32700
+
+
+def test_full_screen_view_stacks_in_a_narrow_terminal() -> None:
+    import asyncio
+
+    from pyfortiaigate.agent_ui import tui_app
+    from pyfortiaigate.cli import _load_catalog
+
+    cases = _load_catalog("agent")
+    app = tui_app(Agent(FakeGateway([]), "faig_x", "m", None), "m", cases)  # type: ignore[arg-type]
+
+    async def drive() -> None:
+        async with app.run_test(size=(80, 24)) as pilot:
+            assert app.has_class("narrow")
+            chat, side = app.query_one("#chat").region, app.query_one("#side").region
+            assert side.y > chat.y
+            assert side.width == chat.width
+            await pilot.resize_terminal(160, 45)
+            await pilot.pause()
+            assert not app.has_class("narrow")
+            chat, side = app.query_one("#chat").region, app.query_one("#side").region
+            assert side.x > chat.x
+            assert side.y == chat.y
+
+    asyncio.run(drive())
+
+
+def test_denied_tool_call_is_not_run() -> None:
+    gw = FakeGateway([reply(calls=TICKET_CALL), reply("I can't look it up.")])
+    asked: list[tuple[str, dict]] = []
+    with McpClient(DEMO_SERVER) as mcp:
+        agent = Agent(gw, "faig_x", "m", mcp, approve=lambda n, a: bool(asked.append((n, a))))  # type: ignore[arg-type]
+        events = list(agent.ask("summarise ticket 4411"))
+    assert asked == [("get_ticket", {"id": 4411})]
+    assert [e[0] for e in events] == ["tool", "denied", "answer"]
+    assert gw.sent[1]["messages"][-1]["content"] == "The user denied this tool call."
+
+
+def test_full_screen_view_asks_before_each_tool_call() -> None:
+    import asyncio
+
+    from textual.widgets import Input, RichLog
+
+    from pyfortiaigate.agent_ui import tui_app
+
+    gw = FakeGateway(
+        [
+            *(reply(calls=TICKET_CALL), reply("no")),
+            *(reply(calls=TICKET_CALL), reply("jams")),
+            *(reply(calls=TICKET_CALL), reply("jams again")),
+        ]
+    )
+    with McpClient(DEMO_SERVER) as mcp:
+        app = tui_app(Agent(gw, "faig_x", "m", mcp), "m", approve=True)  # type: ignore[arg-type]
+
+        async def turn(pilot: Any, answer: str | None) -> None:
+            app.query_one(Input).value = "summarise ticket 4411"
+            await pilot.press("enter")
+            for _ in range(100):
+                await pilot.pause(0.05)
+                if answer and app.screen.query("#ask"):
+                    await pilot.click(f"#{answer}")
+                    answer = None
+                if not app.query_one(Input).disabled:
+                    return
+
+        async def drive() -> None:
+            async with app.run_test(size=(120, 40)) as pilot:
+                await turn(pilot, "deny")
+                await turn(pilot, "always")
+                await turn(pilot, None)  # always allowed: no dialog
+                trace = "\n".join(str(line.text) for line in app.query_one(RichLog).lines)
+                assert trace.count("you denied get_ticket") == 1
+                assert trace.count("↳ Ticket 4411") == 2
+                assert trace.count("✔ answered") == 3
+                assert not gw.replies
+
+        asyncio.run(drive())

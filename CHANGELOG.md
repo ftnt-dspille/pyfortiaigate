@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `pyfortiaigate agent --mcp CMD` asks before every tool call of your own MCP
+  server: **Allow**, **Always allow** (that tool, this session) or **Deny**
+  (the default). A denied call is not run and the model is told so. `--yes`
+  runs the tools without asking. The bundled demo server's tools still run
+  unasked, and the scenario buttons appear only with the demo server.
+- `Agent(approve=...)`: a callback asked before each tool call.
+
+### Changed
+
+- `pyfortiaigate agent` fits a small terminal: below 100 columns the tool-call
+  trace stacks under the chat and the scenario buttons go two to a row. It
+  switches layout live as the window is resized.
+
 ## [0.5.0] - 2026-10-30
 
 ### Added

@@ -220,8 +220,14 @@ a `send_email` that sends nothing. Ticket 4411 hides an indirect prompt
 injection, which an attacker typed into the ticket. Buttons above the input box
 run the agent scenarios: a clean ticket, the poisoned ticket, a direct injection
 and an exfiltration request. Each reports PASS or MISMATCH against what it
-expects. `--mcp` runs any MCP server that speaks stdio. `--no-tools` is a plain
-chat.
+expects. `--mcp` runs any MCP server that speaks stdio. Its tools can do real
+things, so the agent asks before each call: **Allow**, **Always allow** (that
+tool, for the rest of the session) or **Deny**, which has the focus. A denied
+call is not run, and the model is told you denied it. `--yes` runs them without
+asking. `--no-tools` is a plain chat.
+
+Below 100 columns the tool calls stack under the chat, and the layout follows
+the window as you resize it.
 
 To keep a small model dependable, each turn offers the tools once, on a call that
 sees only your question, and asks for the answer without them. A finished turn

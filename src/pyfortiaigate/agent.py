@@ -8,7 +8,11 @@ an injection hidden in data a tool returned (indirect prompt injection).
 
   agent = Agent(client, key, model, McpClient([...]))
   for event in agent.ask("summarise ticket 4411"):
-      ...   # ("tool", name, args) / ("result", name, text) / ("answer", text) / ("blocked", text)
+      ...   # ("tool", name, args) / ("result", name, text) / ("denied", name)
+            # / ("answer", text) / ("blocked", text, last_role) / ("error", msg)
+
+``approve(name, args)``, when given, is asked before every tool call; a call it
+refuses is not run and the model is told the user denied it.
 
 Standard library only: MCP's stdio transport is newline-delimited JSON-RPC.
 """
@@ -18,7 +22,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from typing import Any, cast
 
 from .client import FaigError, FortiAIGate, blocked
@@ -111,8 +115,10 @@ class Agent:
         mcp: McpClient | None = None,
         system: str = SYSTEM,
         max_tokens: int = 256,
+        approve: Callable[[str, dict[str, Any]], bool] | None = None,
     ) -> None:
         self.c, self.key, self.model, self.mcp = client, key, model, mcp
+        self.approve = approve
         self.max_tokens = max_tokens
         self.messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
         self.tokens = 0
@@ -181,8 +187,12 @@ class Agent:
                 except json.JSONDecodeError:
                     args = {}
                 yield ("tool", fn.get("name"), args)
-                result = self.mcp.call(str(fn.get("name")), args)
-                yield ("result", fn.get("name"), result)
+                if self.approve and not self.approve(str(fn.get("name")), args):
+                    result = "The user denied this tool call."
+                    yield ("denied", fn.get("name"))
+                else:
+                    result = self.mcp.call(str(fn.get("name")), args)
+                    yield ("result", fn.get("name"), result)
                 self.messages.append(
                     {"role": "tool", "tool_call_id": call.get("id"), "content": result}
                 )

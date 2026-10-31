@@ -801,7 +801,11 @@ def cmd_agent(c: FortiAIGate, args: argparse.Namespace) -> None:
         tools = ", ".join(t["name"] for t in mcp.tools) if mcp else "none"
         header = f"{model} via {c.gateway_url} · tools: {tools}"
         footer = f"{{tokens}} tokens this session; `{PROG} logs` lists every call."
-        agent_ui.run_tui(agent, header, footer, _load_catalog("agent") if mcp else None)
+        # Your own MCP server's tools can do real things: ask before each call. The
+        # bundled demo's tools only read canned tickets and print, so they run unasked.
+        approve = bool(args.mcp) and not args.yes
+        scenarios = _load_catalog("agent") if mcp and not args.mcp else None
+        agent_ui.run_tui(agent, header, footer, scenarios, approve)
 
 
 def _nullcontext() -> Any:
@@ -1390,6 +1394,7 @@ def parser(settings: Mapping[str, str] | None = None) -> argparse.ArgumentParser
         "--mcp", metavar="CMD", help="MCP server command (default: the bundled helpdesk demo)"
     )
     sp.add_argument("--no-tools", action="store_true", help="plain chat, no MCP server")
+    sp.add_argument("--yes", action="store_true", help="run --mcp tools without asking first")
     sp.add_argument("--max-tokens", type=int, default=256, metavar="N", help="(default 256)")
     add("mcp-demo", cmd_mcp_demo, "run the demo helpdesk MCP server on stdio", ws=False)
     sp = add("scenarios", cmd_scenarios, "run a catalog of prompts: PASS or MISMATCH per case")

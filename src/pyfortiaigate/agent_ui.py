@@ -4,6 +4,7 @@ call and gateway verdict on the right."""
 from __future__ import annotations
 
 import json
+import threading
 from typing import Any, ClassVar
 
 from .agent import Agent
@@ -20,21 +21,35 @@ def _short(text: str, n: int = 100) -> str:
     return text if len(text) <= n else text[: n - 1] + "…"
 
 
+NARROW = 100
+
+
 def run_tui(
-    agent: Agent, header: str, footer: str, scenarios: list[dict[str, Any]] | None = None
+    agent: Agent,
+    header: str,
+    footer: str,
+    scenarios: list[dict[str, Any]] | None = None,
+    approve: bool = False,
 ) -> None:
-    tui_app(agent, header, scenarios).run()
+    tui_app(agent, header, scenarios, approve).run()
     print(footer.format(tokens=agent.tokens))
 
 
-def tui_app(agent: Agent, header: str, scenarios: list[dict[str, Any]] | None = None) -> Any:
+def tui_app(
+    agent: Agent,
+    header: str,
+    scenarios: list[dict[str, Any]] | None = None,
+    approve: bool = False,
+) -> Any:
     """The full-screen app, unstarted (tests drive it with ``run_test``). Each
     scenario with a ``button`` becomes a quick prompt that asks its ``ask`` and
-    checks the turn's outcome against its ``expect`` (blocked or allowed)."""
+    checks the turn's outcome against its ``expect`` (blocked or allowed). With
+    ``approve`` every tool call waits for Allow, Always allow or Deny."""
     quick = [x for x in scenarios or [] if x.get("button") and x.get("ask")]
     try:
         from textual.app import App, ComposeResult
         from textual.containers import Horizontal, Vertical, VerticalScroll
+        from textual.screen import ModalScreen
         from textual.widgets import Button, Footer, Header, Input, Markdown, RichLog, Static
     except ImportError as e:
         raise ValueError(
@@ -42,6 +57,38 @@ def tui_app(agent: Agent, header: str, scenarios: list[dict[str, Any]] | None = 
         ) from e
     from rich.panel import Panel
     from rich.text import Text
+
+    class Approve(ModalScreen[str]):
+        """Allow once, always (this tool, this session) or deny one tool call."""
+
+        CSS = """
+        Approve { align: center middle; }
+        #ask { width: 70; max-width: 95%; height: auto; border: heavy $warning;
+               background: $surface; padding: 1 2; }
+        #ask Horizontal { height: auto; margin-top: 1; }
+        #ask Button { margin-right: 1; }
+        """
+        BINDINGS: ClassVar = [("escape", "dismiss('deny')", "Deny")]
+
+        def __init__(self, name: str, args: dict[str, Any]) -> None:
+            super().__init__()
+            self.tool, self.args = name, args
+
+        def compose(self) -> ComposeResult:
+            with Vertical(id="ask"):
+                yield Static(f"The agent wants to run [b]{self.tool}[/b]")
+                yield Static(Text(_short(json.dumps(self.args), 600)))
+                with Horizontal():
+                    yield Button("Allow", id="once", variant="success", compact=True)
+                    yield Button("Always allow", id="always", compact=True)
+                    yield Button("Deny", id="deny", variant="error", compact=True)
+
+        def on_mount(self) -> None:
+            self.query_one("#deny").focus()  # a stray Enter must not run the tool
+
+        def on_button_pressed(self, event: Button.Pressed) -> None:
+            event.stop()  # not a scenario button
+            self.dismiss(str(event.button.id))
 
     class AgentApp(App[None]):
         TITLE = "faig agent"
@@ -53,6 +100,11 @@ def tui_app(agent: Agent, header: str, scenarios: list[dict[str, Any]] | None = 
         #status { height: 1; padding: 0 1; color: $text-muted; }
         #quick { height: auto; padding: 0 1; }
         #quick Button { margin-right: 1; min-width: 16; }
+        .narrow #main { layout: vertical; }
+        .narrow #chat { width: 1fr; height: 3fr; }
+        .narrow #side { width: 1fr; height: 2fr; border-left: none; border-top: solid $primary; }
+        .narrow #quick { layout: grid; grid-size: 2; grid-gutter: 0 1; }
+        .narrow #quick Button { width: 1fr; margin-right: 0; }
         .you { color: $accent; text-style: bold; margin-top: 1; }
         .who { color: $success; text-style: bold; margin-top: 1; }
         .blocked { border: heavy $error; color: $error; padding: 0 1; margin-top: 1; }
@@ -62,7 +114,7 @@ def tui_app(agent: Agent, header: str, scenarios: list[dict[str, Any]] | None = 
 
         def compose(self) -> ComposeResult:
             yield Header()
-            with Horizontal():
+            with Horizontal(id="main"):
                 yield VerticalScroll(Static(HINT, classes="who"), id="chat")
                 with Vertical(id="side"):
                     yield RichLog(id="trace", wrap=True, markup=False, min_width=20)
@@ -77,6 +129,37 @@ def tui_app(agent: Agent, header: str, scenarios: list[dict[str, Any]] | None = 
         def on_mount(self) -> None:
             self.query_one("#side").border_title = "Tool calls · gateway verdicts"
             self.query_one(Input).focus()
+            self._fit(self.size.width)
+            self.allowed: set[str] = set()
+            if approve:
+                agent.approve = self._approve
+
+        def _approve(self, name: str, args: dict[str, Any]) -> bool:
+            # Runs on the worker thread: wait there for the answer from the dialog.
+            if name in self.allowed:
+                return True
+            answer: list[str] = []
+            done = threading.Event()
+
+            def answered(r: str | None) -> None:
+                answer.append(r or "deny")
+                done.set()
+
+            def ask() -> None:
+                self.push_screen(Approve(name, args), answered)
+
+            self.call_from_thread(ask)
+            done.wait()
+            if answer[0] == "always":
+                self.allowed.add(name)
+            return answer[0] != "deny"
+
+        def on_resize(self, event: Any) -> None:
+            self._fit(event.size.width)
+
+        def _fit(self, width: int) -> None:
+            # Below NARROW columns the trace stacks under the chat, buttons go two a row
+            self.set_class(width < NARROW, "narrow")
 
         def action_clear(self) -> None:
             self.query_one(RichLog).clear()
@@ -138,6 +221,8 @@ def tui_app(agent: Agent, header: str, scenarios: list[dict[str, Any]] | None = 
                 trace.write(
                     Text("  → sent back to the model through FortiAIGate", style="dim italic")
                 )
+            elif ev[0] == "denied":
+                trace.write(Text(f"  ✋ you denied {ev[1]}: not run", style="yellow"))
             elif ev[0] == "blocked":
                 msg = f"BLOCKED by FortiAIGate · {_block_reason(ev)} tripped a guardrail\n{ev[1]}"
                 chat.mount(Static(msg, classes="blocked"))
