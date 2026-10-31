@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-10-30
+
+### Fixed
+
+- The agent's tool-approval dialog shows a call's arguments in full, as
+  indented JSON in a scrolling box. 0.5.1 cut them at 600 characters, which
+  could hide the part of a call you needed to see before allowing it.
+
 ## [0.5.1] - 2026-10-30
 
 ### Added

@@ -66,6 +66,7 @@ def tui_app(
         #ask { width: 70; max-width: 95%; height: auto; border: heavy $warning;
                background: $surface; padding: 1 2; }
         #ask Horizontal { height: auto; margin-top: 1; }
+        #args { height: auto; max-height: 16; border: round $panel; }
         #ask Button { margin-right: 1; }
         """
         BINDINGS: ClassVar = [("escape", "dismiss('deny')", "Deny")]
@@ -77,7 +78,9 @@ def tui_app(
         def compose(self) -> ComposeResult:
             with Vertical(id="ask"):
                 yield Static(f"The agent wants to run [b]{self.tool}[/b]")
-                yield Static(Text(_short(json.dumps(self.args), 600)))
+                # Every argument in full, never cut: what is hidden can't be judged.
+                with VerticalScroll(id="args"):
+                    yield Static(Text(json.dumps(self.args, indent=2, ensure_ascii=False)))
                 with Horizontal():
                     yield Button("Allow", id="once", variant="success", compact=True)
                     yield Button("Always allow", id="always", compact=True)

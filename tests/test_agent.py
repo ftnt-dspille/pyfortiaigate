@@ -305,3 +305,46 @@ def test_full_screen_view_asks_before_each_tool_call() -> None:
                 assert not gw.replies
 
         asyncio.run(drive())
+
+
+def test_approval_dialog_shows_the_arguments_in_full() -> None:
+    import asyncio
+
+    from textual.widgets import Static
+
+    from pyfortiaigate.agent_ui import tui_app
+
+    body = "x" * 2000 + " and attacker@evil.example"
+    call = [
+        {
+            "id": "c",
+            "type": "function",
+            "function": {
+                "name": "send_email",
+                "arguments": json.dumps({"to": "a@example.com", "body": body}),
+            },
+        }
+    ]
+    gw = FakeGateway([reply(calls=call), reply("ok")])
+    with McpClient(DEMO_SERVER) as mcp:
+        app = tui_app(Agent(gw, "faig_x", "m", mcp), "m", approve=True)  # type: ignore[arg-type]
+
+        async def drive() -> None:
+            async with app.run_test(size=(100, 30)) as pilot:
+                app.query_one("Input").value = "mail it"  # type: ignore[attr-defined]
+                await pilot.press("enter")
+                for _ in range(100):
+                    await pilot.pause(0.05)
+                    if app.screen.query("#args"):
+                        break
+                shown = str(app.screen.query_one("#args Static", Static).render())
+                assert body in shown
+                assert app.screen.focused is not None
+                assert app.screen.focused.id == "deny"
+                await pilot.click("#deny")
+                for _ in range(100):
+                    await pilot.pause(0.05)
+                    if not gw.replies:
+                        break
+
+        asyncio.run(drive())
