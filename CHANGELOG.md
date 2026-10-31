@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-30
+
 ### Added
 
 - `pyfortiaigate agent --mcp CMD` asks before every tool call of your own MCP
