@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-11-02
+
+### Fixed
+
+- Blocked-request detail names the key's owner from `createdBy` when the
+  gateway left `owner` unassigned (often null), so `ownerName`/`ownerEmail`
+  name a real person instead of null.
+
+### Added
+
+- Opt-in live end-to-end test (`tests/live/test_live_e2e.py`): builds a full
+  guardrail stack, pushes mixed traffic, and checks the traffic, blocked-request
+  and audit logs.
+
 ## [0.5.5] - 2026-11-02
 
 ### Fixed

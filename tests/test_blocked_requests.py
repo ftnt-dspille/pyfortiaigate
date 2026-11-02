@@ -79,6 +79,22 @@ def test_a_blocked_request_carries_its_key_and_owner(faig: FortiAIGate, fake: Fa
     assert json.loads(q["verdictFilters"][0]) == {"operator": "is", "value": ["Block"]}
 
 
+def test_owner_falls_back_to_created_by_when_unassigned(
+    faig: FortiAIGate, fake: FakeFaig
+) -> None:
+    # The gateway leaves many keys with a null `owner`; `createdBy` is always the
+    # account that made the key, so ownerName/ownerEmail name that account instead
+    # of coming back null.
+    fake.answer("GET", LOGS, (200, {"items": [_row("t1", "ada-key", "faig_…7a43")], "hasNext": False}))
+    fake.answer("GET", f"{LOGS}/t1", (200, _log("t1", "ada-key", "faig_…7a43")))
+    key = _key("k1", "ada-key", "faig_…7a43")
+    key["owner"] = None
+    key["createdBy"] = {"id": "u1", "fullName": "Ada Student", "email": "ada@example.com"}
+    fake.answer("GET", KEYS, (200, {"items": [key]}))
+    b = faig.blocked_requests(ws_id=WS)[0]
+    assert (b["ownerName"], b["ownerEmail"]) == ("Ada Student", "ada@example.com")
+
+
 def test_two_keys_with_one_name_are_told_apart_by_preview(
     faig: FortiAIGate, fake: FakeFaig
 ) -> None:

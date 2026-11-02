@@ -3158,7 +3158,12 @@ class FortiAIGate:
         if len(keys) > 1:  # same name twice: the previews share the secret's tail
             keys = [k for k in keys if str(k.get("keyPreview") or "") == prefix] or keys
         key = keys[0] if len(keys) == 1 else None
-        owner = (key or {}).get("owner") or {}
+        # A key's `owner` is assigned by the gateway and is often null (a key
+        # created outside "the owner acting in their own workspace" never gets
+        # one), whereas `createdBy` is always the account that made the key. Fall
+        # back to it so ownerName/ownerEmail name a real person instead of null.
+        key_d = key or {}
+        owner = key_d.get("owner") or key_d.get("createdBy") or {}
         found: list[BlockedDetector] = []
         for side, hits in (log.get("violation") or {}).items():
             for h in hits or []:
