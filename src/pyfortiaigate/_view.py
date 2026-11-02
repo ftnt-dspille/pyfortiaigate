@@ -449,6 +449,9 @@ def _rich(block: Block) -> Any:
             border_style=STYLES.get(block.style, block.style),
             box=box.ROUNDED,
             padding=(0, 1),
+            # Hug the content (still capped at the terminal width, wrapping inside), so
+            # the border always closes on the same line whatever the width is.
+            expand=False,
         )
     grid = RTable.grid(expand=True, padding=(0, 1))  # Row
     for _ in block.panels:

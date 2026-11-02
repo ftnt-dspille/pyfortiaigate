@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-11-02
+
+### Fixed
+
+- CLI panels (e.g. `faig chat`'s result) hug their content instead of always
+  spanning the terminal, so the border closes on the same line at any width.
+
 ## [0.5.4] - 2026-10-31
 
 ### Added
