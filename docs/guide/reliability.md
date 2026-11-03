@@ -10,9 +10,16 @@ already have been applied:
 |---|---|---|
 | Connect refused, reset during TLS, failed send (never answered) | retried | retried |
 | Connection dropped after the request was sent | retried | **raised**: it may have landed |
-| HTTP error status (4xx, 5xx) | raised | raised |
+| HTTP `500` / `502` / `503` / `504` on a **gateway call** (chat, models) | retried | retried |
+| HTTP `500` / `502` / `503` / `504` on a management call | retried | **raised**: it may have landed |
+| Any other HTTP error status | raised | raised |
 
-The exceptions for HTTP statuses: a single re-login on `401`, a single fresh
+A gateway call is safe to repeat (a chat completion or a model list changes nothing),
+so a transient `500` from the gateway or its model provider is retried up to
+`server_retries=3` times with backoff of 1, 2, 4 s, then raised as `ServerError`.
+Set `server_retries=0` to turn it off.
+
+The other exceptions for HTTP statuses: a single re-login on `401`, a single fresh
 CSRF token on a CSRF `403`, and waiting out `429` when the client has a
 `rate_limit_wait` budget (see [Errors & rate limits](errors.md)). Each retry is logged as a warning on the
 `pyfortiaigate` logger:

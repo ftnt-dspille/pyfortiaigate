@@ -7,8 +7,9 @@ OpenAI-compatible gateway.
   module you can copy onto a host that cannot `pip install`.
 - **Handles the API's sharp edges:** session login and re-login, a CSRF token
   per mutation, and body builders for what the API silently requires.
-- **Safe retries.** A request that was never answered is retried; a mutation
-  that may already have landed is never sent twice.
+- **Safe retries.** A request that was never answered is retried, and so is a
+  transient 500 from the gateway (3 tries, backing off); a mutation that may already
+  have landed is never sent twice.
 - **Typed** (`py.typed`, mypy `--strict`) and tested against a local HTTP
   server, with coverage enforced.
 

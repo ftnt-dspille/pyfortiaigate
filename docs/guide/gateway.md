@@ -49,7 +49,8 @@ A block is streamed too: one chunk carrying the block message, then one with
 `finish_reason: "content_filter"`. With a policy that scans responses
 `in_stream`, the block can come after part of the answer has arrived.
 `collect_stream` joins the chunks into one completion. A stream runs on its own
-connection and is never retried.
+connection. A `500`/`502`/`503`/`504` answered before the first chunk is retried (`server_retries`);
+once chunks arrive it is never resent.
 
 ## Choosing a model
 

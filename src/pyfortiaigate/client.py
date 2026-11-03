@@ -81,6 +81,8 @@ QUEUE_KIND = {"guardrail": "guardrails", "detector": "detectors", "policy": "pol
 SECRET_FIELDS = ("secretKey", "secret_key", "apiKey", "api_key", "newKey", "new_key", "key")
 
 _BODY_METHODS = {"POST", "PUT", "PATCH"}
+# HTTP answers worth resending: the gateway or a model provider hiccuped and no answer was produced.
+_TRANSIENT = frozenset({500, 502, 503, 504})
 
 # Usage/cost reporting: what the API accepts (it 422s on anything else).
 INTERVALS = ("hourly", "daily", "weekly", "monthly")
@@ -1506,8 +1508,11 @@ class FortiAIGate:
     Transport failures are retried with backoff (1, 2, 4, ... s): a request that
     was never answered is retried for every method; a connection dropped AFTER
     the request went out is retried only for GET, since a mutation may already
-    have landed. HTTP errors are never retried, except one re-login on 401 and
-    one fresh CSRF token on a CSRF 403."""
+    have landed. HTTP errors are not retried, except one re-login on 401, one
+    fresh CSRF token on a CSRF 403, and a 500/502/503/504 on a gateway call
+    (chat, models) or a management GET: those are retried up to
+    ``server_retries`` times (default 3) with backoff (1, 2, 4 s). Other
+    management calls are never resent after a 5xx, since they may have landed."""
 
     def __init__(
         self,
@@ -1519,6 +1524,7 @@ class FortiAIGate:
         verify: bool | str = True,
         timeout: float = 60,
         retries: int = 5,
+        server_retries: int = 3,
         gateway_url: str | None = None,
         rate_limit_wait: float = 0,
         workspace: str | None = None,
@@ -1527,6 +1533,7 @@ class FortiAIGate:
         self.gateway_url = origin(gateway_url) if gateway_url else self.url
         self.timeout = timeout
         self.retries = retries
+        self.server_retries = server_retries
         self.rate_limit_wait = rate_limit_wait
         self._token = token
         self._creds = (username, password or "") if username else None
@@ -1588,13 +1595,15 @@ class FortiAIGate:
         body: JSON = None,
         headers: Mapping[str, str] | None = None,
         timeout: float | None = None,
+        retry_server: bool = False,
     ) -> tuple[int, str]:
         """One request with transport retries. Returns (status, text) for every
-        HTTP answer, error statuses included."""
+        HTTP answer, error statuses included. ``retry_server`` also resends a
+        500/502/503/504 (up to ``server_retries``): only for calls safe to repeat."""
         data = None if body is None else json.dumps(body).encode()
         hdrs = {"Content-Type": "application/json", "Accept": "application/json"}
         hdrs.update(headers or {})
-        attempt = limited = 0
+        attempt = limited = server_tries = 0
         waited = 0.0
         while True:
             req = urllib.request.Request(url, data=data, headers=hdrs, method=method)
@@ -1603,6 +1612,20 @@ class FortiAIGate:
                     return resp.status, resp.read().decode(errors="replace")
             except urllib.error.HTTPError as e:
                 text = e.read().decode(errors="replace")
+                if retry_server and e.code in _TRANSIENT and server_tries < self.server_retries:
+                    wait = 2.0**server_tries
+                    server_tries += 1
+                    log.warning(
+                        "%s %s: HTTP %d; retry %d/%d in %ds",
+                        method,
+                        url,
+                        e.code,
+                        server_tries,
+                        self.server_retries,
+                        wait,
+                    )
+                    time.sleep(wait)
+                    continue
                 if e.code != 429 or waited >= self.rate_limit_wait:
                     return e.code, text
                 # Rate limited: nothing was processed, so any method may resend.
@@ -1671,7 +1694,7 @@ class FortiAIGate:
         st, txt, headers = self._auth_headers(method)
         if st != 200:
             return st, txt
-        return self._raw(method, self.url + path, body, headers)
+        return self._raw(method, self.url + path, body, headers, retry_server=method == "GET")
 
     def request(
         self,
@@ -3301,6 +3324,7 @@ class FortiAIGate:
             body,
             {"Authorization": f"Bearer {api_key}"},
             timeout=timeout,
+            retry_server=True,  # inference and model lists: a repeat changes nothing
         )
 
     def check_key(self, api_key: str) -> KeyCheck:
@@ -3374,7 +3398,9 @@ class FortiAIGate:
         ``in_stream`` response scanning mid-answer. ``collect_stream`` joins
         the chunks into one completion that ``blocked`` understands.
 
-        Runs on its own connection and is never retried (it is a POST)."""
+        Runs on its own connection. A 500/502/503/504 answered before any chunk
+        is retried up to ``server_retries`` times; once chunks flow it is never
+        resent."""
         if not messages:
             raise ValueError("messages must be a non-empty list")
         body: dict[str, Any] = {"model": model, "messages": messages, "stream": True, **extra}
@@ -3384,26 +3410,47 @@ class FortiAIGate:
             body["temperature"] = float(temperature)
         path = "/ai/openai/v1/chat/completions"
         u = urllib.parse.urlsplit(self.gateway_url)
-        conn: http.client.HTTPConnection
         t = max(self.timeout, timeout)
-        if u.scheme == "https":
-            conn = http.client.HTTPSConnection(
-                u.hostname or "", u.port or 443, context=self._ctx, timeout=t
-            )
-        else:
-            conn = http.client.HTTPConnection(u.hostname or "", u.port or 80, timeout=t)
+
+        def connect() -> http.client.HTTPConnection:
+            if u.scheme == "https":
+                return http.client.HTTPSConnection(
+                    u.hostname or "", u.port or 443, context=self._ctx, timeout=t
+                )
+            return http.client.HTTPConnection(u.hostname or "", u.port or 80, timeout=t)
+
+        conn = connect()
         try:
-            conn.request(
-                "POST",
-                path,
-                body=json.dumps(body).encode(),
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                    "Accept": "text/event-stream",
-                },
-            )
-            resp = conn.getresponse()
+            tries = 0
+            while True:
+                conn.request(
+                    "POST",
+                    path,
+                    body=json.dumps(body).encode(),
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                        "Accept": "text/event-stream",
+                    },
+                )
+                resp = conn.getresponse()
+                if resp.status in _TRANSIENT and tries < self.server_retries:
+                    resp.read()
+                    conn.close()
+                    wait = 2.0**tries
+                    tries += 1
+                    log.warning(
+                        "POST %s: HTTP %d; retry %d/%d in %ds",
+                        path,
+                        resp.status,
+                        tries,
+                        self.server_retries,
+                        wait,
+                    )
+                    time.sleep(wait)
+                    conn = connect()
+                    continue
+                break
             if resp.status != 200:
                 raise error_for("POST", path, resp.status, resp.read().decode(errors="replace"))
             if "event-stream" not in (resp.getheader("Content-Type") or ""):

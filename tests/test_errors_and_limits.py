@@ -133,6 +133,88 @@ def test_429_honours_retry_after_and_gives_up_past_the_budget(
     c.close()
 
 
+BROKEN = (500, {"error": {"message": "provider_transient", "code": "provider_transient"}})
+
+
+def test_gateway_500_is_retried_then_answers(
+    fake: FakeFaig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr("pyfortiaigate.client.time.sleep", sleeps.append)
+    c = FortiAIGate(fake.url, token="t")
+    fake.answer("POST", CHAT, BROKEN, BROKEN, (200, {"choices": []}))
+    assert c.chat_completion("faig_x", "m", MSG) == {"choices": []}
+    assert sleeps == [1.0, 2.0]
+    assert len(fake.calls("POST", CHAT)) == 3
+    c.close()
+
+
+def test_gateway_500_gives_up_after_three_retries(
+    fake: FakeFaig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr("pyfortiaigate.client.time.sleep", sleeps.append)
+    c = FortiAIGate(fake.url, token="t")
+    fake.answer("POST", CHAT, BROKEN)  # the last answer repeats
+    with pytest.raises(ServerError, match="provider_transient"):
+        c.chat_completion("faig_x", "m", MSG)
+    assert sleeps == [1.0, 2.0, 4.0]
+    assert len(fake.calls("POST", CHAT)) == 4  # the first try plus three retries
+    c.close()
+
+
+def test_server_retries_zero_turns_it_off(fake: FakeFaig) -> None:
+    c = FortiAIGate(fake.url, token="t", server_retries=0)
+    fake.answer("POST", CHAT, BROKEN)
+    with pytest.raises(ServerError):
+        c.chat_completion("faig_x", "m", MSG)
+    assert len(fake.calls("POST", CHAT)) == 1
+    c.close()
+
+
+@pytest.mark.parametrize("status", [502, 503, 504])
+def test_other_transient_statuses_retry(fake: FakeFaig, status: int) -> None:
+    c = FortiAIGate(fake.url, token="t")
+    fake.answer("POST", CHAT, (status, {"error": {"message": "x"}}), (200, {"choices": []}))
+    assert c.chat_completion("faig_x", "m", MSG) == {"choices": []}
+    c.close()
+
+
+def test_a_non_transient_error_is_not_retried(fake: FakeFaig) -> None:
+    c = FortiAIGate(fake.url, token="t")
+    fake.answer("POST", CHAT, (400, {"error": {"message": "bad"}}))
+    with pytest.raises(ValidationError):
+        c.chat_completion("faig_x", "m", MSG)
+    assert len(fake.calls("POST", CHAT)) == 1
+    c.close()
+
+
+def test_management_get_500_is_retried(fake: FakeFaig) -> None:
+    c = FortiAIGate(fake.url, token="t")
+    fake.answer("GET", "/api/v1/user", BROKEN, (200, {"email": "a@b.c"}))
+    assert c.me()["email"] == "a@b.c"
+    assert len(fake.calls("GET", "/api/v1/user")) == 2
+    c.close()
+
+
+def test_management_mutation_500_is_never_resent(fake: FakeFaig) -> None:
+    c = FortiAIGate(fake.url, token="t")
+    fake.answer("POST", "/api/v1/things", BROKEN)
+    with pytest.raises(ServerError):
+        c.post("/api/v1/things", {"name": "x"})
+    assert len(fake.calls("POST", "/api/v1/things")) == 1  # it may already have landed
+    c.close()
+
+
+def test_stream_500_before_any_chunk_is_retried(fake: FakeFaig) -> None:
+    c = FortiAIGate(fake.url, token="t")
+    whole = {"object": "chat.completion", "choices": [{"message": {"content": "hi"}}]}
+    fake.answer("POST", CHAT, BROKEN, (200, whole))
+    assert list(c.chat_completion_stream("faig_x", "m", MSG)) == [whole]
+    assert len(fake.calls("POST", CHAT)) == 2
+    c.close()
+
+
 def test_retry_after_parsing() -> None:
     assert _retry_after(None) is None
     assert _retry_after({}) is None

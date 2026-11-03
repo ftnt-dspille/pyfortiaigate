@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `server_retries` (default 3): a gateway call (chat completion, streamed chat before its
+  first chunk, model list) or a management GET that answers `500`, `502`, `503` or `504`
+  is retried up to three times, backing off 1, 2, 4 s, before `ServerError` is raised. A
+  management mutation is never resent after a 5xx. `server_retries=0` turns it off.
+
 ## [0.5.6] - 2026-11-02
 
 ### Fixed

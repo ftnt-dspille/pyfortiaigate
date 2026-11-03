@@ -79,13 +79,21 @@ def test_drop_after_send_never_resends_a_mutation(anon: FortiAIGate, method: str
 
 
 def test_http_errors_are_not_retried(faig: FortiAIGate, fake: FakeFaig) -> None:
+    fake.answer("GET", "/api/v1/x", (409, {"message": "busy"}))
+    with pytest.raises(FaigError, match="busy") as e:
+        faig.get("/api/v1/x")
+    assert e.value.status == 409
+    assert e.value.method == "GET"
+    assert e.value.path == "/api/v1/x"
+    assert len(fake.calls("GET", "/api/v1/x")) == 1
+
+
+def test_a_503_on_a_get_is_retried_up_to_server_retries(faig: FortiAIGate, fake: FakeFaig) -> None:
     fake.answer("GET", "/api/v1/x", (503, {"message": "busy"}))
     with pytest.raises(FaigError, match="busy") as e:
         faig.get("/api/v1/x")
     assert e.value.status == 503
-    assert e.value.method == "GET"
-    assert e.value.path == "/api/v1/x"
-    assert len(fake.calls("GET", "/api/v1/x")) == 1
+    assert len(fake.calls("GET", "/api/v1/x")) == 4  # first try + 3 retries
 
 
 def test_one_connection_is_reused(faig: FortiAIGate, fake: FakeFaig) -> None:
