@@ -32,6 +32,45 @@ for item in faig.review_queue():
     faig.approve(QUEUE_KIND[item["type"]], item["id"])
 ```
 
+## Auto-approving a whole class
+
+Every student change waits for an org admin, and FortiAIGate has no setting to
+turn that off. For a class, run a loop that clears the queue for the class's
+workspaces only. The full script is `examples/workshop/auto_approver.py`; the
+core is:
+
+```python
+from pyfortiaigate import QUEUE_KIND, FaigError
+
+def approve_pending(faig, ws_ids: set[str]) -> int:
+    done = 0
+    for item in faig.review_queue():
+        if item.get("ownerWorkspaceId") not in ws_ids:
+            continue                      # never approve outside the class
+        try:
+            faig.approve(QUEUE_KIND[item["type"]], item["id"])   # by id, not name
+            done += 1
+        except FaigError:
+            pass                          # someone approved or withdrew it first
+    return done
+```
+
+Run it as the org admin and leave it running:
+
+```bash
+python examples/workshop/auto_approver.py student      # every workspace named student*
+python examples/workshop/auto_approver.py student --once
+```
+
+Rules worth keeping: approve by id (the same name can be pending in several
+workspaces), re-read the workspace list every pass (workspaces created after the
+loop started are picked up), and treat a lost race as normal. The client logs in
+again by itself when the ~24 minute session expires, so the loop can run all day.
+
+A laptop closing its lid stops the loop. For a real class, run the same script
+on the lab VM as a `systemd` service with `Restart=always` so it starts at boot
+and recovers from FortiAIGate still coming up.
+
 ## Body builders
 
 The API accepts bodies that store fine and then do nothing. The builders encode

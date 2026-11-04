@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `examples/workshop/auto_approver.py` and an "Auto-approving a whole class" section in the approval guide: the instructor loop that clears every student change for the class's workspaces.
+
 ## [0.5.8] - 2026-11-04
 
 ### Added

@@ -18,6 +18,7 @@ python 01_hello.py
 | `04_who_blocked_me.py` | blocked requests from the traffic log, counted per detector | FIXME |
 | `05_spend_report.py` | usage and spend for your workspace, by model | FIXME |
 | `06_regex_playground.py` | try a regex detector without saving it | FIXME |
+| `auto_approver.py` | instructor, org admin: approve every student change for a class | none, runs as-is |
 
 `scenarios.json` is the workshop's catalog of test prompts:
 
