@@ -5,8 +5,10 @@ review queue, and FortiAIGate has no setting to turn that off. This loop clears
 the queue so students never wait on you. Leave it running for the whole class.
 
 Run it as the ORG ADMIN (not a student). It reads the same settings as the
-``pyfortiaigate`` command line (``pyfortiaigate config init``); FAIG_WS and
-FAIG_KEY are not needed.
+``pyfortiaigate`` command line: FAIG_URL, FAIG_USERNAME and FAIG_PASSWORD from the
+environment or from ``~/.config/pyfortiaigate/.env`` (written by
+``pyfortiaigate config init``; FAIG_ENV_FILE points at another file). FAIG_WS and
+FAIG_KEY are not needed. It loops until Ctrl+C; --interval sets the pause.
 
     python auto_approver.py student            # every workspace named student*
     python auto_approver.py student01 student02 student03

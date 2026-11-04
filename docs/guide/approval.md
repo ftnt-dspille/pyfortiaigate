@@ -67,9 +67,73 @@ workspaces), re-read the workspace list every pass (workspaces created after the
 loop started are picked up), and treat a lost race as normal. The client logs in
 again by itself when the ~24 minute session expires, so the loop can run all day.
 
-A laptop closing its lid stops the loop. For a real class, run the same script
-on the lab VM as a `systemd` service with `Restart=always` so it starts at boot
-and recovers from FortiAIGate still coming up.
+### Setup: how the script gets its credentials
+
+The script reads the same settings as the `pyfortiaigate` command line
+(`load_settings()`), in this order: a `FAIG_*` environment variable, then the
+settings file. It needs the **org admin** login, not a student's, and it does not
+need `FAIG_WS` or `FAIG_KEY`.
+
+1. Install the library: `pip install pyfortiaigate` (the `[cli]` extra is only
+   for the `pyfortiaigate` command).
+2. Write the settings file once: `pyfortiaigate config init`. It asks for the
+   address, login and password and saves them to
+   `~/.config/pyfortiaigate/.env` with mode `0600`. Or write it by hand:
+
+   ```
+   FAIG_URL=https://faig.example.com
+   FAIG_USERNAME=admin@example.com
+   FAIG_PASSWORD=<your-password>
+   FAIG_VERIFY_TLS=false      # only for a lab appliance with a self-signed certificate
+   ```
+
+3. Check it: `pyfortiaigate config` shows what is set (secrets masked) and
+   `pyfortiaigate whoami` proves the login works.
+
+To keep the admin login apart from your own, put it in a separate file and point
+at it: `FAIG_ENV_FILE=/path/to/admin.env python auto_approver.py student`.
+A `.env` in the current directory is never read.
+
+### Running it in a loop
+
+The script already loops: it checks the queue every 3 seconds (`--interval N`
+changes that) until you press Ctrl+C, and `--once` runs a single pass. Start it
+before class and leave it in the foreground of a terminal (`tmux` or `screen`
+keeps it alive if you disconnect):
+
+```bash
+python examples/workshop/auto_approver.py student --interval 5
+```
+
+On the lab VM, run it as a service so it starts at boot and restarts on any
+error (FortiAIGate still coming up, a network blip). Put the settings in a
+root-only file and let `systemd` supply them:
+
+```ini
+# /etc/systemd/system/faig-approver.service
+[Unit]
+Description=FortiAIGate class auto-approver
+After=network-online.target
+
+[Service]
+EnvironmentFile=/etc/faig-approver.env      # FAIG_URL, FAIG_USERNAME, FAIG_PASSWORD
+ExecStart=/usr/bin/python3 /opt/faig-approver/auto_approver.py student
+Restart=always
+RestartSec=15
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo install -m 600 -o root admin.env /etc/faig-approver.env
+sudo systemctl daemon-reload && sudo systemctl enable --now faig-approver
+journalctl -u faig-approver -f          # one "approved ..." line per change
+```
+
+`EnvironmentFile` takes plain `NAME=value` lines with no `export` and no quotes
+around the value. `systemctl stop faig-approver` ends it after class.
 
 ## Body builders
 
