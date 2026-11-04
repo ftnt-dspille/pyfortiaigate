@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.8] - 2026-11-04
+
 ### Added
 
 - Troubleshooting logs. `pyfortiaigate.enable_logging(level="DEBUG", file=None)` (or the
