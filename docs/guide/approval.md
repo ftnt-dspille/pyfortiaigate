@@ -42,16 +42,17 @@ core is:
 ```python
 from pyfortiaigate import QUEUE_KIND, FaigError
 
+
 def approve_pending(faig, ws_ids: set[str]) -> int:
     done = 0
     for item in faig.review_queue():
         if item.get("ownerWorkspaceId") not in ws_ids:
-            continue                      # never approve outside the class
+            continue  # never approve outside the class
         try:
-            faig.approve(QUEUE_KIND[item["type"]], item["id"])   # by id, not name
+            faig.approve(QUEUE_KIND[item["type"]], item["id"])  # by id, not name
             done += 1
         except FaigError:
-            pass                          # someone approved or withdrew it first
+            pass  # someone approved or withdrew it first
     return done
 ```
 
