@@ -17,7 +17,10 @@ already have been applied:
 A gateway call is safe to repeat (a chat completion or a model list changes nothing),
 so a transient `500` from the gateway or its model provider is retried up to
 `server_retries=3` times with backoff of 1, 2, 4 s, then raised as `ServerError`.
-Set `server_retries=0` to turn it off.
+Set `server_retries=0` to turn it off. The 7 seconds of backoff covers a brief blip, not an
+outage: when the gateway marks an upstream down (`503` "every upstream credential for this
+model is currently unavailable") it can stay that way for a minute or more, and the call
+still raises `ServerError`.
 
 The other exceptions for HTTP statuses: a single re-login on `401`, a single fresh
 CSRF token on a CSRF `403`, and waiting out `429` when the client has a

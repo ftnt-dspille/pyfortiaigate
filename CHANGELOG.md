@@ -6,12 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.7] - 2026-11-03
+
 ### Added
 
 - `server_retries` (default 3): a gateway call (chat completion, streamed chat before its
   first chunk, model list) or a management GET that answers `500`, `502`, `503` or `504`
   is retried up to three times, backing off 1, 2, 4 s, before `ServerError` is raised. A
-  management mutation is never resent after a 5xx. `server_retries=0` turns it off.
+  management mutation is never resent after a 5xx. `server_retries=0` turns it off. The 1, 2, 4 s schedule rides out a brief blip; a gateway
+  that marks an upstream unavailable (503 "every upstream credential for this model is
+  currently unavailable") can stay down for a minute or more, which `ServerError` still reports.
 
 ## [0.5.6] - 2026-11-02
 
