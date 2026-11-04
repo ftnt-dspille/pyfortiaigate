@@ -66,6 +66,36 @@ from typing import Any, NamedTuple, TypedDict, cast
 
 log = logging.getLogger("pyfortiaigate")
 
+
+def _snip(text: str, n: int = 240) -> str:
+    """A response body squeezed onto one log line."""
+    one = " ".join(text.split())
+    return one if len(one) <= n else one[: n - 1] + "…"
+
+
+def enable_logging(level: str | int = "DEBUG", file: str | None = None) -> logging.Handler:
+    """Send the ``pyfortiaigate`` logger to stderr (or ``file``) with timestamps.
+
+    DEBUG logs every HTTP attempt (method, URL, status, milliseconds); WARNING logs
+    each retry and any 5xx with the start of its body. Never logs credentials, request
+    bodies or headers. The same switch from the environment: ``PYFORTIAIGATE_LOG=debug``
+    (and optionally ``PYFORTIAIGATE_LOG_FILE=/path``). Calling it again replaces the
+    handler it added before. Returns the handler."""
+    lg = logging.getLogger("pyfortiaigate")
+    for h in [h for h in lg.handlers if getattr(h, "_pyfortiaigate_enabled", False)]:
+        lg.removeHandler(h)
+        h.close()
+    handler: logging.Handler = logging.FileHandler(file) if file else logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    handler._pyfortiaigate_enabled = True  # type: ignore[attr-defined]
+    lg.addHandler(handler)
+    try:
+        lg.setLevel(level.upper() if isinstance(level, str) else level)
+    except ValueError:
+        lg.setLevel(logging.DEBUG)
+    return handler
+
+
 JSON = Any
 
 # Invitable org roles (8.0.2 rejects plain "member").
@@ -1607,26 +1637,47 @@ class FortiAIGate:
         waited = 0.0
         while True:
             req = urllib.request.Request(url, data=data, headers=hdrs, method=method)
+            t0 = time.monotonic()
             try:
                 with self._opener.open(req, timeout=timeout or self.timeout) as resp:
-                    return resp.status, resp.read().decode(errors="replace")
+                    out = resp.read().decode(errors="replace")
+                    log.debug(
+                        "%s %s -> HTTP %d in %.0f ms",
+                        method,
+                        url,
+                        resp.status,
+                        (time.monotonic() - t0) * 1000,
+                    )
+                    return resp.status, out
             except urllib.error.HTTPError as e:
                 text = e.read().decode(errors="replace")
+                ms = (time.monotonic() - t0) * 1000
                 if retry_server and e.code in _TRANSIENT and server_tries < self.server_retries:
                     wait = 2.0**server_tries
                     server_tries += 1
                     log.warning(
-                        "%s %s: HTTP %d; retry %d/%d in %ds",
+                        "%s %s: HTTP %d in %.0f ms; retry %d/%d in %ds: %s",
                         method,
                         url,
                         e.code,
+                        ms,
                         server_tries,
                         self.server_retries,
                         wait,
+                        _snip(text),
                     )
                     time.sleep(wait)
                     continue
                 if e.code != 429 or waited >= self.rate_limit_wait:
+                    log.log(
+                        logging.WARNING if e.code >= 500 else logging.DEBUG,
+                        "%s %s -> HTTP %d in %.0f ms: %s",
+                        method,
+                        url,
+                        e.code,
+                        ms,
+                        _snip(text),
+                    )
                     return e.code, text
                 # Rate limited: nothing was processed, so any method may resend.
                 wait = min(_retry_after(e.headers) or 2.0**limited, self.rate_limit_wait - waited)
@@ -3423,6 +3474,7 @@ class FortiAIGate:
         try:
             tries = 0
             while True:
+                t0 = time.monotonic()
                 conn.request(
                     "POST",
                     path,
@@ -3434,8 +3486,15 @@ class FortiAIGate:
                     },
                 )
                 resp = conn.getresponse()
+                ms = (time.monotonic() - t0) * 1000
                 if resp.status in _TRANSIENT and tries < self.server_retries:
-                    resp.read()
+                    log.warning(
+                        "POST %s: HTTP %d in %.0f ms (stream): %s",
+                        path,
+                        resp.status,
+                        ms,
+                        _snip(resp.read().decode(errors="replace")),
+                    )
                     conn.close()
                     wait = 2.0**tries
                     tries += 1
@@ -3452,7 +3511,16 @@ class FortiAIGate:
                     continue
                 break
             if resp.status != 200:
-                raise error_for("POST", path, resp.status, resp.read().decode(errors="replace"))
+                err_body = resp.read().decode(errors="replace")
+                log.warning(
+                    "POST %s -> HTTP %d in %.0f ms (stream): %s",
+                    path,
+                    resp.status,
+                    ms,
+                    _snip(err_body),
+                )
+                raise error_for("POST", path, resp.status, err_body)
+            log.debug("POST %s -> HTTP 200 in %.0f ms to first byte (stream)", path, ms)
             if "event-stream" not in (resp.getheader("Content-Type") or ""):
                 yield json.loads(resp.read() or b"{}")  # answered without streaming
                 return

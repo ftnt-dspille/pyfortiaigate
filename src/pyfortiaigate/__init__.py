@@ -1,5 +1,6 @@
 """Python client for the FortiAIGate 8.x management and gateway API."""
 
+import os as _os
 from importlib.metadata import PackageNotFoundError, version
 
 from .client import (
@@ -108,6 +109,7 @@ from .client import (
     breakdown_items,
     collect_stream,
     dlp_detector_body,
+    enable_logging,
     error_for,
     guardrail_body,
     items,
@@ -118,6 +120,11 @@ from .client import (
     regex_detector_body,
     secret_from_response,
 )
+
+if _os.environ.get("PYFORTIAIGATE_LOG"):
+    enable_logging(
+        _os.environ["PYFORTIAIGATE_LOG"], _os.environ.get("PYFORTIAIGATE_LOG_FILE") or None
+    )
 
 try:
     __version__ = version("pyfortiaigate")
@@ -231,6 +238,7 @@ __all__ = [
     "breakdown_items",
     "collect_stream",
     "dlp_detector_body",
+    "enable_logging",
     "error_for",
     "guardrail_body",
     "items",

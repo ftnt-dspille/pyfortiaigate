@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Troubleshooting logs. `pyfortiaigate.enable_logging(level="DEBUG", file=None)` (or the
+  environment, `PYFORTIAIGATE_LOG=debug` and optionally `PYFORTIAIGATE_LOG_FILE=/path`, which
+  the `faig` CLI picks up too) writes timestamped records to stderr or a file. DEBUG logs every
+  HTTP attempt with its status and milliseconds; each retry and every 5xx that is finally raised
+  is logged at WARNING with the start of the response body (streamed chat included). Credentials,
+  request bodies and headers are never logged.
+
 ## [0.5.7] - 2026-11-03
 
 ### Added

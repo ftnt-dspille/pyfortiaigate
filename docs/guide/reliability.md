@@ -49,3 +49,27 @@ The client is not thread-safe: give each thread its own `FortiAIGate`.
 
 `timeout=60` seconds per request by default. `chat_completion` uses at least
 120 s, since a completion waits on the upstream model.
+
+## Troubleshooting logs
+
+When a call fails and you need to know what the client saw, turn the log on:
+
+```bash
+PYFORTIAIGATE_LOG=debug PYFORTIAIGATE_LOG_FILE=faig.log faig chat "hi"
+```
+
+or in code:
+
+```python
+from pyfortiaigate import enable_logging
+
+enable_logging("DEBUG", file="faig.log")  # file is optional; the default is stderr
+```
+
+DEBUG logs every HTTP attempt as `POST <url> -> HTTP 200 in 412 ms`. Each retry, and any 5xx
+that is finally raised, is logged at WARNING with the first 240 characters of the response body,
+for example `provider returned an internal server error` or `every upstream credential for this
+model is currently unavailable`. The log never contains credentials, request bodies or headers.
+
+The gateway sends no request id back, so match a failure to the server's own logs by time
+(the log lines carry timestamps), the model and the key.
