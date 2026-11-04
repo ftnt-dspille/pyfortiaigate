@@ -83,3 +83,32 @@ def test_an_unknown_level_falls_back_to_debug() -> None:
             lg.removeHandler(h)
             h.close()
         lg.setLevel(level)
+
+
+@pytest.mark.parametrize(
+    "leak",
+    [
+        "faig_abcdef123456",
+        "Bearer abc.def.ghi",
+        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.sig",
+        '"password": "hunter2hunter2"',
+        "api_key=sk-live-123456",
+    ],
+)
+def test_a_logged_error_body_scrubs_keys_and_tokens(
+    fake: FakeFaig,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    leak: str,
+) -> None:
+    monkeypatch.setattr("pyfortiaigate.client.time.sleep", lambda _s: None)
+    caplog.set_level(logging.DEBUG, logger="pyfortiaigate")
+    c = FortiAIGate(fake.url, token="t", server_retries=0)
+    fake.answer("POST", CHAT, (500, {"error": {"message": f"upstream said {leak} ok"}}))
+    with pytest.raises(ServerError):
+        c.chat_completion("faig_x", "m", MSG)
+    text = "\n".join(r.getMessage() for r in caplog.records)
+    assert "[redacted]" in text
+    assert leak.split()[-1].strip('"') not in text.replace("[redacted]", "")
+    assert "upstream said" in text
+    c.close()

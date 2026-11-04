@@ -13,7 +13,8 @@ All notable changes to this project are documented here. The format follows
   the `faig` CLI picks up too) writes timestamped records to stderr or a file. DEBUG logs every
   HTTP attempt with its status and milliseconds; each retry and every 5xx that is finally raised
   is logged at WARNING with the start of the response body (streamed chat included). Credentials,
-  request bodies and headers are never logged.
+  request bodies and headers are never logged, and anything in a logged response body that looks like a
+  key, bearer token, JWT or password value is replaced by `[redacted]`.
 
 ## [0.5.7] - 2026-11-03
 

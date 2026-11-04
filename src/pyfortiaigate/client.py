@@ -67,9 +67,16 @@ from typing import Any, NamedTuple, TypedDict, cast
 log = logging.getLogger("pyfortiaigate")
 
 
+_SECRET = re.compile(
+    r"faig_[A-Za-z0-9_\-]{6,}|[Bb]earer\s+\S+|eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-.]+"
+    r"|(?i:(?:password|passwd|secret|token|api[_-]?key))[\\\"']*\s*[:=]\s*[\\\"']*[^\s\\\"',}]+"
+)
+
+
 def _snip(text: str, n: int = 240) -> str:
-    """A response body squeezed onto one log line."""
-    one = " ".join(text.split())
+    """A response body squeezed onto one log line, with anything that looks like a key,
+    bearer token, JWT or password value replaced by ``[redacted]``."""
+    one = _SECRET.sub("[redacted]", " ".join(text.split()))
     return one if len(one) <= n else one[: n - 1] + "…"
 
 
