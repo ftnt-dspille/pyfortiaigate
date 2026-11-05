@@ -34,7 +34,7 @@ cli = ["rich>=13.7", "textual>=0.80"]
 test = ["pytest>=7.0", "pytest-cov>=4.0", "rich>=13.7", "textual>=0.80"]
 typecheck = ["mypy>=1.13"]
 # Pinned so a local run and CI agree; bump deliberately.
-lint = ["ruff==0.16.10"]
+lint = ["ruff==0.17.3"]
 docs = ["mkdocs>=1.6,<2", "mkdocs-material>=9.5", "mkdocstrings[python]>=0.26"]
 dev = ["pyfortiaigate[cli,test,typecheck,lint,docs]"]
 
